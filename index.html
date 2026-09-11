@@ -3236,18 +3236,24 @@ function showCoachAuthOverlay() {
   };
   // Google sign-in (works on sign-in and create-account forms)
   const googleSignIn = async () => {
-    document.getElementById('ca-error').textContent = '';
+    const errEl = document.getElementById('ca-error');
+    errEl.textContent = '';
     try {
       const provider = new firebase.auth.GoogleAuthProvider();
-      // Use redirect on mobile (more reliable), popup on desktop
-      if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-        await auth.signInWithRedirect(provider);
-      } else {
-        await auth.signInWithPopup(provider);
-      }
+      // Use popup on all devices — modern mobile browsers handle it fine
+      await auth.signInWithPopup(provider);
       // onAuthStateChanged + checkTeamAccess handles the rest
     } catch(e) {
-      document.getElementById('ca-error').textContent = friendlyAuthError(e.code);
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+        // Popup was blocked — fall back to redirect
+        try {
+          await auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider());
+        } catch(e2) {
+          errEl.textContent = friendlyAuthError(e2.code);
+        }
+      } else if (e.code !== 'auth/cancelled-popup-request') {
+        errEl.textContent = friendlyAuthError(e.code);
+      }
     }
   };
   document.getElementById('ca-google-btn').onclick = googleSignIn;
