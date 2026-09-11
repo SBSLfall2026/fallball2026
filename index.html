@@ -1218,10 +1218,15 @@ function openSettingsModal() {
         const snap = await db.collection('teams').doc(teamCode).collection('_test').doc('ping').get();
         if (snap.exists) {
           res.style.color = '#166534';
-          res.textContent = `✅ Write+Read OK — Firebase is working. Team: ${teamCode}`;
+          const pIds = cache.players.slice(0,3).map(p=>`${p.name}→${p.id}`).join(', ');
+          const statCount = cache.stats.length;
+          const statSample = cache.stats[0] ? `playerId:${cache.stats[0].playerId}` : 'none';
+          res.innerHTML = `✅ Firebase OK · Team: ${teamCode}<br>
+            Players (first 3 IDs): ${pIds}<br>
+            Stats in cache: ${statCount} · Sample stat: ${statSample}`;
         } else {
           res.style.color = '#991b1b';
-          res.textContent = '❌ Write succeeded but read failed — caching issue?';
+          res.textContent = '❌ Write succeeded but read failed';
         }
       } catch(err) {
         res.style.color = '#991b1b';
