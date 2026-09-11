@@ -1180,6 +1180,8 @@ function openSettingsModal() {
       <button class="btn btn-danger btn-sm" id="s-switch-team">Switch Team</button>
     </div>
     <div style="font-size:.73rem;color:var(--muted);margin-top:8px">Export saves everything to a JSON file for offline backup or sharing.</div>
+    <button class="btn btn-secondary btn-sm" id="s-test-write" style="margin-top:8px">🔬 Test Firebase Write</button>
+    <div id="s-test-result" style="font-size:.75rem;margin-top:4px"></div>
   `, `
     <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
     <button class="btn btn-primary"   id="modal-submit">Save Settings</button>
@@ -1207,6 +1209,25 @@ function openSettingsModal() {
     renderSettingsCoachList();
     document.getElementById('s-add-coach-btn')?.addEventListener('click', openAddCoachModal);
     document.getElementById('s-export-btn')?.addEventListener('click', exportAllData);
+    document.getElementById('s-test-write')?.addEventListener('click', async () => {
+      const res = document.getElementById('s-test-result');
+      if (!res) return;
+      res.textContent = 'Testing…';
+      try {
+        await db.collection('teams').doc(teamCode).collection('_test').doc('ping').set({ ts: new Date().toISOString(), by: currentUser||'?' });
+        const snap = await db.collection('teams').doc(teamCode).collection('_test').doc('ping').get();
+        if (snap.exists) {
+          res.style.color = '#166534';
+          res.textContent = `✅ Write+Read OK — Firebase is working. Team: ${teamCode}`;
+        } else {
+          res.style.color = '#991b1b';
+          res.textContent = '❌ Write succeeded but read failed — caching issue?';
+        }
+      } catch(err) {
+        res.style.color = '#991b1b';
+        res.textContent = `❌ Error: ${err.message||err}`;
+      }
+    });
     document.getElementById('s-import-input')?.addEventListener('change', e => {
       const f = e.target.files[0]; if (f) importAllData(f);
     });
@@ -3003,7 +3024,16 @@ async function importAllData(file) {
         const results = await Promise.allSettled(chunk.map(w => w.ref.set(w.data)));
         results.forEach((r, idx) => {
           if (r.status === 'fulfilled') { done++; }
-          else { errors++; console.error(`Import failed: ${chunk[idx].coll}/${chunk[idx].id}`, r.reason); }
+          else {
+            errors++;
+            const errMsg = r.reason?.message || String(r.reason) || 'unknown error';
+            console.error(`Import failed: ${chunk[idx].coll}/${chunk[idx].id}`, r.reason);
+            // Show first error on screen so user can see it
+            if (errors === 1) {
+              const el = document.getElementById('toast');
+              if (el) { el.innerHTML = `<span style="color:#fca5a5">Error: ${esc(errMsg.slice(0,80))}</span>`; el.classList.add('show'); }
+            }
+          }
         });
         showProgress();
       }
