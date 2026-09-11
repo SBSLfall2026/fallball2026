@@ -175,8 +175,26 @@
     /* ── Game selector ── */
     select.game-sel { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: white; font-size: .875rem; color: var(--text); }
 
-    /* ── Lineup ── */
-    .lineup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    /* ── Lineup three-column view ── */
+    .lineup-3col { display:grid; grid-template-columns:1fr 1.5fr 1fr; gap:10px; align-items:start; }
+    @media (max-width:900px) { .lineup-3col { grid-template-columns:1fr; } }
+    .lc-wrap { display:flex; flex-direction:column; gap:8px; }
+    .lc-hdr { border-radius:var(--radius); padding:9px 12px; }
+    .lc-hdr.prev { background:#f3f4f6; border:1px solid var(--border); }
+    .lc-hdr.curr { background:var(--green); color:white; }
+    .lc-hdr.next { background:var(--green-light); border:1px solid var(--green); }
+    .lc-label { font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; opacity:.65; }
+    .lc-game  { font-weight:700; font-size:.88rem; margin-top:2px; }
+    .lc-meta  { font-size:.73rem; opacity:.75; margin-top:1px; }
+    .lc-sec   { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:8px 0 4px; }
+    .lc-bat-row { font-size:.78rem; padding:4px 0; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px; }
+    .lc-bat-num { color:var(--muted); min-width:18px; font-size:.72rem; }
+    .lc-must-pill { background:#fff3cd; border:1px solid #f59e0b; border-radius:4px; padding:5px 8px; font-size:.73rem; color:#78350f; font-weight:600; }
+    .compact-def { display:grid; grid-template-columns:1fr 1fr; gap:2px 6px; }
+    .compact-def-row { display:flex; gap:5px; align-items:center; font-size:.75rem; padding:2px 0; }
+    .compact-pos-lbl { font-weight:700; min-width:26px; color:var(--green-dark); font-size:.7rem; }
+    /* Keep old .lineup-cols for internal use within current col */
+    .lineup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     @media (max-width: 580px) { .lineup-cols { grid-template-columns: 1fr; } }
     .col-title { font-size: .9rem; font-weight: 700; margin-bottom: 10px; color: var(--green-dark); }
     .order-list { list-style: none; min-height: 40px; }
@@ -1538,6 +1556,69 @@ function wireTimeline(onSelect) {
   });
 }
 
+// ── Lineup column helpers ─────────────────────────────────────────────────────
+function buildCompactDefense(lineup, players) {
+  if (!lineup?.entries?.length) return '<div style="color:var(--muted);font-size:.75rem;font-style:italic">Not set</div>';
+  const POSS = ['P','C','1B','2B','3B','SS','LF','CF','RF'];
+  return `<div class="compact-def">${POSS.map(pos=>{
+    const entry = lineup.entries.find(e=>e.fieldingPosition===pos);
+    const p = entry ? players.find(x=>x.id===entry.playerId) : null;
+    return `<div class="compact-def-row"><span class="compact-pos-lbl">${pos}</span><span>${p?esc(dname(p)):'<span style="color:var(--muted)">—</span>'}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function buildReadOnlyOrder(lineup, players, compliance) {
+  const ordered = (lineup?.entries||[]).filter(e=>e.battingOrder>0).sort((a,b)=>a.battingOrder-b.battingOrder);
+  if (!ordered.length) return '<div style="color:var(--muted);font-size:.75rem;font-style:italic">No lineup set</div>';
+  return ordered.map((e,i)=>{
+    const p = players.find(x=>x.id===e.playerId);
+    const comp = compliance?.find(c=>c.playerId===e.playerId);
+    const icon = !comp ? '⚪' : (comp.gotAB&&comp.gotField)?'✅':(!comp.gotAB&&!comp.gotField)?'🔴':'🟡';
+    const cf = (!comp?.gotAB||!comp?.gotField) ? ' style="font-weight:700;color:#991b1b"' : '';
+    return `<div class="lc-bat-row"><span class="lc-bat-num">${i+1}</span><span>${icon}</span><span${cf}>${esc(p?dname(p):'?')}</span></div>`;
+  }).join('');
+}
+
+function buildPrevCol(prevGame, players) {
+  if (!prevGame) return `<div class="lc-wrap"><div class="lc-hdr prev"><div class="lc-label">◀ Previous</div><div class="lc-game" style="color:var(--muted)">No previous game</div></div></div>`;
+  const lu = getLineup(prevGame.id);
+  const comp = cache.compliance.filter(c=>c.gameId===prevGame.id);
+  const res = prevGame.result ? `${prevGame.result} ${prevGame.ourScore}–${prevGame.theirScore}` : '';
+  const missed = comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean);
+  return `<div class="lc-wrap">
+    <div class="lc-hdr prev">
+      <div class="lc-label">◀ Previous Game</div>
+      <div class="lc-game">${esc(prevGame.date)} vs ${esc(prevGame.opponent)}</div>
+      <div class="lc-meta">${esc(res)||'No result'}</div>
+    </div>
+    ${missed.length?`<div class="lc-must-pill">⚑ Carry forward: ${missed.map(p=>esc(dname(p))).join(', ')}</div>`:'<div style="font-size:.75rem;color:#166534;font-weight:600">✅ All players met requirements</div>'}
+    <div class="lc-sec">Batting Order</div>
+    ${buildReadOnlyOrder(lu, players, comp)}
+    <div class="lc-sec">Starting Defense</div>
+    ${buildCompactDefense(lu, players)}
+  </div>`;
+}
+
+function buildNextCol(nextGame, players, currentGameId) {
+  if (!nextGame) return `<div class="lc-wrap"><div class="lc-hdr next"><div class="lc-label">Next ▶</div><div class="lc-game" style="color:var(--green-dark)">No upcoming game</div></div></div>`;
+  const lu   = getLineup(nextGame.id);
+  const comp = cache.compliance.filter(c=>c.gameId===currentGameId);
+  const cfNext = comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean);
+  return `<div class="lc-wrap">
+    <div class="lc-hdr next">
+      <div class="lc-label">Next Game ▶</div>
+      <div class="lc-game" style="color:var(--green-dark)">${esc(nextGame.date)} vs ${esc(nextGame.opponent)}</div>
+      <div class="lc-meta" style="color:var(--green)">${nextGame.time||''}${nextGame.homeAway?' · '+(nextGame.homeAway==='home'?'🏠 Home':'✈️ Away'):''}</div>
+    </div>
+    ${cfNext.length?`<div class="lc-must-pill">⚑ Must play next game: ${cfNext.map(p=>esc(dname(p))).join(', ')}</div>`:''}
+    <div class="lc-sec">Batting Order</div>
+    ${buildReadOnlyOrder(lu, players, null)}
+    <div class="lc-sec">Starting Defense</div>
+    ${buildCompactDefense(lu, players)}
+    ${lu.entries?.filter(e=>e.battingOrder>0).length===0?'<div style="font-size:.73rem;color:var(--muted);font-style:italic">Lineup not set yet — select this game to build it.</div>':''}
+  </div>`;
+}
+
 function renderLineupTab() {
   syncGameSelects();
   const sel = document.getElementById('lineup-game-sel');
@@ -1578,16 +1659,33 @@ function renderLineupContent(gameId) {
     return p.active===false ? `?${label}?` : label;
   };
 
-  // Build carry-forward alert and previous game reference (injected before main lineup)
-  const cfAlert   = buildCarryForwardAlert(gameId, carryFwd, players);
-  const prevRef   = buildPrevGameReference(gameId, players);
-  const timeline  = buildGameTimeline(gameId, id=>{ document.getElementById('lineup-game-sel').value=id; renderLineupContent(id); });
+  // Get adjacent games for three-column view
+  const sortedGames = [...cache.games].sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  const curIdx  = sortedGames.findIndex(g=>g.id===gameId);
+  const prevGame = curIdx>0 ? sortedGames[curIdx-1] : null;
+  const nextGame = curIdx<sortedGames.length-1 ? sortedGames[curIdx+1] : null;
+
+  const timeline = buildGameTimeline(gameId, id=>{ document.getElementById('lineup-game-sel').value=id; renderLineupContent(id); });
+  const prevCol  = buildPrevCol(prevGame, players);
+  const nextCol  = buildNextCol(nextGame, players, gameId);
+  const game     = cache.games.find(g=>g.id===gameId);
 
   el.innerHTML = `
     ${timeline}
-    ${cfAlert}
-    ${prevRef}
-    <div class="lineup-cols">
+    <div class="lineup-3col">
+
+      <!-- LEFT: Previous game -->
+      ${prevCol}
+
+      <!-- CENTER: Current game (editable) -->
+      <div class="lc-wrap">
+        <div class="lc-hdr curr">
+          <div class="lc-label">Current — ${locked?'🔒 Locked':'Editing'}</div>
+          <div class="lc-game">${game?esc(gameLabel(game)):'Select a game'}</div>
+          <div class="lc-meta">${game?.time||''}${game?.homeAway?' · '+(game.homeAway==='home'?'🏠 Home':'✈️ Away'):''}</div>
+        </div>
+        ${carryFwd.size>0?`<div class="lc-must-pill">⚑ Must play this game: ${[...carryFwd].map(pid=>{const p=players.find(x=>x.id===pid);return p?esc(dname(p)):'';}).filter(Boolean).join(', ')}</div>`:''}
+        <div class="lineup-cols">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div class="col-title" style="margin:0">⚡ Batting Order</div>
@@ -1660,11 +1758,12 @@ function renderLineupContent(gameId) {
             const e=entries.find(x=>x.fieldingPosition===d.pos);
             const player=e?players.find(p=>p.id===e.playerId):null;
             const filled=!!player;
-            const sn=player?player.name.split(' ')[0].slice(0,8):'';
+            const firstName=player?(player.nickname||player.name.split(' ')[0]):'';
+            const sn=firstName.length>9?firstName.slice(0,8)+'…':firstName;
             return `<g class="pos-node" data-pos="${d.pos}" style="cursor:pointer">
               <circle cx="${d.cx}" cy="${d.cy}" r="17" fill="${filled?'#2d6a2d':'white'}" stroke="#2d6a2d" stroke-width="2" opacity="${filled?1:.8}"/>
               <text x="${d.cx}" y="${d.cy-3}" font-size="9" font-weight="700" fill="${filled?'white':'#2d6a2d'}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui">${d.pos}</text>
-              <text x="${d.cx}" y="${d.cy+7}" font-size="7" fill="${filled?'#c8f0c8':'#aaa'}" text-anchor="middle" font-family="system-ui">${esc(sn)||'—'}</text>
+              <text x="${d.cx}" y="${d.cy+7}" font-size="${sn.length>7?'6':'7'}" fill="${filled?'#c8f0c8':'#aaa'}" text-anchor="middle" font-family="system-ui">${esc(sn)||'—'}</text>
             </g>`;
           }).join('')}
         </svg>
@@ -1696,6 +1795,12 @@ function renderLineupContent(gameId) {
         <button class="btn btn-secondary btn-sm" id="clear-fielded-btn" style="font-size:.72rem">Clear All</button>
       </div>
     </div>
+      </div><!-- /lc-wrap center -->
+
+      <!-- RIGHT: Next game -->
+      ${nextCol}
+
+    </div><!-- /lineup-3col -->
   `;
 
   wireTimeline(id=>{ document.getElementById('lineup-game-sel').value=id; renderLineupContent(id); });
