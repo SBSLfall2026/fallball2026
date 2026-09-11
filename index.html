@@ -312,6 +312,19 @@
     .field-notes { font-size: .8rem; line-height: 1.5; color: var(--text); flex: 1; }
     .field-actions { display: flex; gap: 6px; margin-top: 10px; }
 
+    /* ── Activity log ── */
+    .activity-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .activity-item:last-child { border-bottom:none; }
+    .ai-icon { font-size:1.1rem; flex-shrink:0; margin-top:1px; }
+    .ai-body { flex:1; }
+    .ai-who  { font-weight:600; font-size:.875rem; }
+    .ai-what { font-size:.8rem; color:var(--text); margin-top:1px; }
+    .ai-meta { font-size:.72rem; color:var(--muted); margin-top:2px; }
+    .user-pill { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.25); border-radius:20px; padding:3px 10px; font-size:.75rem; color:rgba(255,255,255,.9); cursor:pointer; transition:background .15s; }
+    .user-pill:hover { background:rgba(255,255,255,.25); }
+    .pin-input { width:100%; padding:12px; font-size:1.4rem; text-align:center; letter-spacing:.3em; border:2px solid var(--border); border-radius:var(--radius); font-family:monospace; }
+    .pin-input:focus { outline:none; border-color:var(--green); }
+
     /* ── Team Overlay ── */
     #team-overlay { position: fixed; inset: 0; background: var(--green-dark); z-index: 500; display: flex; align-items: center; justify-content: center; padding: 20px; }
     #team-overlay.hidden { display: none; }
@@ -334,6 +347,7 @@
   </div>
   <div class="header-right">
     <span class="team-code-pill" id="team-code-display" title="Team code — share with coaches"></span>
+    <span class="user-pill" id="user-pill" title="Tap to change identity">👤 <span id="user-name-display">…</span></span>
     <button class="hdr-btn" id="settings-btn" title="Team Settings & Data">⚙️</button>
   </div>
 </header>
@@ -349,6 +363,7 @@
   <button data-tab="rules">Rules</button>
   <button data-tab="fields">Fields</button>
   <button data-tab="opponents">Opponents</button>
+  <button data-tab="activity">Activity</button>
 </nav>
 
 <main>
@@ -548,6 +563,16 @@
     <div id="opp-grid" class="card-grid"></div>
   </section>
 
+  <!-- ACTIVITY -->
+  <section id="tab-activity" class="tab-section">
+    <div class="section-header">
+      <h2>Activity Log</h2>
+      <button class="btn btn-danger btn-sm" id="clear-activity-btn" style="display:none">Clear Log</button>
+    </div>
+    <div id="activity-pin-gate"></div>
+    <div id="activity-content" style="display:none"></div>
+  </section>
+
 </main>
 
 <!-- FAB -->
@@ -585,6 +610,30 @@
   </div>
 </div>
 
+<!-- Coach Auth Gate (shown after team code, before full access) -->
+<div id="coach-auth-overlay" style="display:none;position:fixed;inset:0;background:var(--green-dark);z-index:510;align-items:center;justify-content:center;padding:20px">
+  <div class="team-card">
+    <div style="font-size:2rem;margin-bottom:8px">🔐</div>
+    <h2 style="margin-bottom:6px">Coach Verification</h2>
+    <p>Select your name and enter your PIN.<br>Contact the head coach if you need access.</p>
+    <div class="form-group" style="text-align:left">
+      <label>Your Name</label>
+      <select id="ca-name" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem;background:white">
+        <option value="">-- Select your name --</option>
+      </select>
+    </div>
+    <div class="form-group" style="text-align:left">
+      <label>Your PIN</label>
+      <input class="pin-input" id="ca-pin" type="password" maxlength="6" placeholder="• • • •">
+    </div>
+    <button class="btn btn-primary" id="ca-submit" style="width:100%;justify-content:center;padding:10px">Verify &amp; Enter</button>
+    <div class="team-error" id="ca-error"></div>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary btn-sm" id="ca-switch-team" style="font-size:.75rem">← Switch Team</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Firebase init ─────────────────────────────────────────────────────────────
 if (typeof firebase === 'undefined') {
@@ -604,10 +653,10 @@ const db = firebase.firestore();
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
-const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents'];
+const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches'];
 
 // ── Cache (mirrors Firestore, updated by listeners) ───────────────────────────
-const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], settings:{} };
+const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], settings:{} };
 
 // ── Firestore helpers (compat API) ────────────────────────────────────────────
 const teamDocRef  = ()         => db.collection('teams').doc(teamCode);
@@ -643,6 +692,10 @@ function setupListeners() {
           if (name === 'fields'    && cache.fields.length    === 0) seedFields();
           if (name === 'resources' && cache.resources.length === 0) seedResources();
           if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
+          if (name === 'coaches' && cache.coaches.length > 0 && !isCoachVerified()) {
+            const overlay = document.getElementById('coach-auth-overlay');
+            if (overlay && overlay.style.display !== 'none') showCoachAuthOverlay();
+          }
         },
         err => console.warn('Listener error:', name, err)
       );
@@ -653,10 +706,10 @@ function setupListeners() {
     if (snap.exists) {
       const { teamName, sport, coachName, coachContact, season,
               asst1Name, asst1Contact, asst2Name, asst2Contact,
-              asst3Name, asst3Contact, leagueRules } = snap.data();
+              asst3Name, asst3Contact, leagueRules, adminPin } = snap.data();
       cache.settings = { teamName, sport, coachName, coachContact, season,
                          asst1Name, asst1Contact, asst2Name, asst2Contact,
-                         asst3Name, asst3Contact, leagueRules };
+                         asst3Name, asst3Contact, leagueRules, adminPin };
       applySettings();
       renderStaffCard();
     }
@@ -770,6 +823,15 @@ function openSettingsModal() {
     `).join('')}
     <div class="form-group"><label>Season</label>
       <input id="s-season" value="${esc(s.season||'')}" placeholder="e.g. Fall 2026"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="form-group" style="margin:0"><label>Activity Log PIN <span style="font-size:.72rem">(protects the Activity tab)</span></label>
+        <input id="s-pin" type="password" value="${esc(s.adminPin||'')}" placeholder="Set a 4-digit PIN"></div>
+    </div>
+    <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
+    <div style="font-size:.82rem;font-weight:600;margin-bottom:8px;color:var(--muted)">COACH ACCESS — who can log in</div>
+    <div id="s-coaches-list" style="margin-bottom:8px"></div>
+    <button class="btn btn-secondary btn-sm" id="s-add-coach-btn">+ Add Coach Account</button>
+    <div style="font-size:.73rem;color:var(--muted);margin-top:6px">Each coach needs a name and PIN to verify their identity when opening the app.</div>
     <hr style="margin:16px 0;border:none;border-top:1px solid var(--border)">
     <div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">
       <span class="sync-dot"></span>Live sync active — Team code:
@@ -801,12 +863,16 @@ function openSettingsModal() {
       asst2Contact: document.getElementById('s-asst2contact').value.trim(),
       asst3Name:    document.getElementById('s-asst3name').value.trim(),
       asst3Contact: document.getElementById('s-asst3contact').value.trim(),
+      adminPin:     document.getElementById('s-pin').value.trim(),
     };
     fbSaveSettings(newSettings);
     applySettings();
     closeModal(); toast('Settings saved ✔');
   });
+  // Render coach list in settings
   setTimeout(() => {
+    renderSettingsCoachList();
+    document.getElementById('s-add-coach-btn')?.addEventListener('click', openAddCoachModal);
     document.getElementById('s-export-btn')?.addEventListener('click', exportAllData);
     document.getElementById('s-import-input')?.addEventListener('change', e => {
       const f = e.target.files[0]; if (f) importAllData(f);
@@ -831,6 +897,7 @@ const TAB_RENDER = {
   rules:     renderRulesTab,
   fields:    renderFieldsTab,
   opponents: renderOpponentsTab,
+  activity:  renderActivityTab,
 };
 document.getElementById('main-nav').addEventListener('click', e => {
   const btn = e.target.closest('button[data-tab]');
@@ -1018,6 +1085,7 @@ function openPlayerModal(id, hintType) {
       active:      p?.active ?? true,
     };
     fbSave('players', data);
+    logActivity(p?'edited_player':'added_player', `${p?'Edited':'Added'} player: ${data.name}`);
     closeModal(); syncPlayerSelects();
     toast(p?'Player updated':'Player added ✔');
   });
@@ -1139,6 +1207,7 @@ function openGameModal(onSave, editGame) {
       theirScore:g ? document.getElementById('gts').value  : '',
     };
     fbSave('games', game);
+    logActivity(g?'edited_game':'added_game', `${g?'Edited':'Added'} game: ${game.date} vs ${game.opponent}`);
     syncGameSelects(); closeModal(); toast(g?'Game updated ✔':'Game added ✔');
     if (onSave) onSave(game);
   });
@@ -1589,6 +1658,7 @@ function renderStatsContent(gameId) {
       const existing=cache.stats.find(x=>x.gameId===gameId&&x.playerId===pid);
       fbSave('stats',{ id:existing?.id||genId(), gameId, playerId:pid, ...fields });
     });
+    logActivity('saved_stats',`Stats saved — ${cache.games.find(g=>g.id===gameId)?.opponent||'game'}`);
     toast('Stats saved ✔');
   });
 }
@@ -1995,6 +2065,7 @@ function renderPitchingContent(gameId, playerId) {
     const ipO2=parseInt(document.getElementById('ip-outs').value)||0;
     const existing=getPitchLog(gameId,playerId);
     fbSave('pitching',{...existing, innings:rows, ipFull:ipF2, ipOuts:ipO2});
+    logActivity('saved_pitch',`Pitch log saved — ${cache.games.find(g=>g.id===gameId)?.opponent||'game'} · ${cache.players.find(p=>p.id===playerId)?.name||''}`);
     toast('Pitch log saved ✔');
     renderPitchingContent(gameId,playerId);
   });
@@ -2124,6 +2195,7 @@ document.getElementById('add-note-btn').addEventListener('click',()=>{
     const text=document.getElementById('n-text').value.trim();
     if(!pid||!text){toast('Player and note are required');return;}
     fbSave('notes',{id:genId(),playerId:pid,tag:document.getElementById('n-tag').value,date:document.getElementById('n-date').value,text});
+    logActivity('added_note',`Note added for ${cache.players.find(p=>p.id===pid)?.name||pid} (${document.getElementById('n-tag').value})`);
     closeModal(); renderNotesList(); toast('Note added ✔');
   });
 });
@@ -2324,7 +2396,25 @@ function launchApp() {
   document.getElementById('team-code-display').textContent = teamCode;
   setupListeners();
   // Wait briefly for first snapshot to arrive, then render
-  setTimeout(()=>{ renderRoster(); syncGameSelects(); syncPlayerSelects(); seedResources(); seedFields(); applySettings(); }, 600);
+  setTimeout(()=>{
+    seedResources(); seedFields(); seedOpponents(); applySettings();
+    // Check coach verification
+    if (!isCoachVerified()) {
+      showCoachAuthOverlay();
+      // Re-check after coaches load from Firebase
+      const checkInterval = setInterval(() => {
+        if (cache.coaches.length > 0 || document.getElementById('coach-auth-overlay').style.display === 'none') {
+          clearInterval(checkInterval);
+          if (!isCoachVerified() && cache.coaches.length > 0) showCoachAuthOverlay();
+        }
+      }, 500);
+    } else {
+      const name = localStorage.getItem(USER_KEY);
+      if (name) { setCurrentUser(name); }
+      else { document.getElementById('user-name-display').textContent = 'Set name'; }
+    }
+    renderRoster(); syncGameSelects(); syncPlayerSelects();
+  }, 600);
 }
 
 // ── RULES & COMPLIANCE ───────────────────────────────────────────────────────
@@ -2886,6 +2976,128 @@ function showCopyFallback(text) {
   `,`<button class="btn btn-primary" id="modal-cancel">Done</button>`);
 }
 
+// ── COACH AUTH ───────────────────────────────────────────────────────────────
+const COACH_AUTH_KEY = 'fb26_coach_verified'; // session flag
+
+function renderSettingsCoachList() {
+  const el = document.getElementById('s-coaches-list'); if (!el) return;
+  const coaches = cache.coaches;
+  if (!coaches.length) {
+    el.innerHTML = `<div style="font-size:.8rem;color:var(--muted);margin-bottom:6px">No coach accounts yet. Add yourself first — you'll need your name and PIN to sign in.</div>`;
+    return;
+  }
+  el.innerHTML = coaches.map(c => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:.875rem;font-weight:500">${esc(c.name)}</span>
+      <span class="badge" style="background:var(--green-light);color:var(--green-dark)">${esc(c.role||'Coach')}</span>
+      <button class="btn btn-secondary btn-sm" data-action="reset-pin" data-cid="${esc(c.id)}" style="font-size:.72rem">Reset PIN</button>
+      <button class="btn btn-danger btn-sm" data-action="del-coach" data-cid="${esc(c.id)}" style="font-size:.72rem">✕</button>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-action="del-coach"]').forEach(b=>b.addEventListener('click',()=>{
+    if(!confirm(`Remove ${cache.coaches.find(c=>c.id===b.dataset.cid)?.name}?`)) return;
+    fbDelete('coaches',b.dataset.cid); renderSettingsCoachList(); toast('Coach removed');
+  }));
+  el.querySelectorAll('[data-action="reset-pin"]').forEach(b=>b.addEventListener('click',()=>{
+    const c = cache.coaches.find(x=>x.id===b.dataset.cid); if(!c) return;
+    openResetPinModal(c);
+  }));
+}
+
+function openAddCoachModal() {
+  openModal('Add Coach Account', `
+    <div class="form-group"><label>Full Name *</label><input id="nc-name" placeholder="e.g. Jessica Danison"></div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="nc-role">
+        <option value="Head Coach">Head Coach</option>
+        <option value="Assistant Coach" selected>Assistant Coach</option>
+      </select>
+    </div>
+    <div class="form-group"><label>PIN * <span style="font-size:.72rem;color:var(--muted)">(4–6 digits, coach uses this to verify identity)</span></label>
+      <input id="nc-pin" type="password" maxlength="6" placeholder="e.g. 1234" style="letter-spacing:.2em;font-size:1.1rem"></div>
+    <div class="form-group"><label>Confirm PIN</label>
+      <input id="nc-pin2" type="password" maxlength="6" placeholder="Repeat PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-primary"   id="modal-submit">Add Coach</button>
+  `, () => {
+    const name = document.getElementById('nc-name').value.trim();
+    const pin  = document.getElementById('nc-pin').value.trim();
+    const pin2 = document.getElementById('nc-pin2').value.trim();
+    if (!name || !pin) { toast('Name and PIN required'); return; }
+    if (pin !== pin2)  { toast('PINs do not match'); return; }
+    if (!/^\d{4,6}$/.test(pin)) { toast('PIN must be 4–6 digits'); return; }
+    fbSave('coaches', { id: genId(), name, pin, role: document.getElementById('nc-role').value, active: true, createdAt: new Date().toISOString() });
+    closeModal(); renderSettingsCoachList(); toast(`${name} added ✔`);
+  });
+}
+
+function openResetPinModal(coach) {
+  openModal(`Reset PIN — ${coach.name}`, `
+    <div class="form-group"><label>New PIN</label>
+      <input id="rp-pin" type="password" maxlength="6" placeholder="New 4–6 digit PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
+    <div class="form-group"><label>Confirm PIN</label>
+      <input id="rp-pin2" type="password" maxlength="6" placeholder="Repeat PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-primary"   id="modal-submit">Save New PIN</button>
+  `, () => {
+    const pin  = document.getElementById('rp-pin').value.trim();
+    const pin2 = document.getElementById('rp-pin2').value.trim();
+    if (!pin || pin !== pin2) { toast('PINs must match'); return; }
+    if (!/^\d{4,6}$/.test(pin)) { toast('PIN must be 4–6 digits'); return; }
+    fbSave('coaches', { ...coach, pin });
+    closeModal(); toast(`PIN updated for ${coach.name}`);
+  });
+}
+
+function showCoachAuthOverlay() {
+  const overlay = document.getElementById('coach-auth-overlay');
+  const sel     = document.getElementById('ca-name');
+  overlay.style.display = 'flex';
+
+  // Populate coach names
+  sel.innerHTML = '<option value="">-- Select your name --</option>' +
+    cache.coaches.filter(c=>c.active!==false).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.role||'Coach')})</option>`).join('');
+
+  document.getElementById('ca-submit').onclick = () => {
+    const coachId = sel.value;
+    const pin     = document.getElementById('ca-pin').value.trim();
+    const errEl   = document.getElementById('ca-error');
+    if (!coachId || !pin) { errEl.textContent = 'Select your name and enter your PIN'; return; }
+    const coach = cache.coaches.find(c=>c.id===coachId);
+    if (!coach || coach.pin !== pin) {
+      errEl.textContent = 'Incorrect PIN — contact the head coach if you need help';
+      // Log failed attempt (we have team code but not full access yet)
+      fbSave('activity', { id:genId(), userName:coach?.name||'Unknown', action:'failed_pin', detail:'Failed coach verification', timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
+      return;
+    }
+    // Success
+    overlay.style.display = 'none';
+    sessionStorage.setItem(COACH_AUTH_KEY, coachId);
+    setCurrentUser(coach.name);
+    logActivity('signed_in', `Verified and signed in on ${getDeviceInfo()}`);
+    toast(`Welcome, ${coach.name} ✔`);
+  };
+
+  document.getElementById('ca-pin').onkeydown = e => { if(e.key==='Enter') document.getElementById('ca-submit').click(); };
+
+  document.getElementById('ca-switch-team').onclick = () => {
+    localStorage.removeItem('fb26_teamCode');
+    sessionStorage.removeItem(COACH_AUTH_KEY);
+    overlay.style.display = 'none';
+    location.reload();
+  };
+}
+
+function isCoachVerified() {
+  // If no coaches are set up yet, bypass verification (lets head coach set things up first)
+  if (!cache.coaches.length) return true;
+  return !!sessionStorage.getItem(COACH_AUTH_KEY);
+}
+
 // ── OPPONENTS ────────────────────────────────────────────────────────────────
 const OPP_SEEDS = [
   { name:'Newport',           difficulty:5, notes:'' },
@@ -2975,6 +3187,194 @@ function openOppModal(id) {
     closeModal(); renderOppGrid(); toast(o?'Updated ✔':'Opponent added ✔');
   });
 }
+
+// ── USER IDENTITY & ACTIVITY LOG ─────────────────────────────────────────────
+const USER_KEY = 'fb26_user_name';
+let currentUser = localStorage.getItem(USER_KEY) || null;
+let activityPinUnlocked = false;
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent;
+  const dev = /iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':'Desktop';
+  const br  = /Edg/.test(ua)?'Edge':/Chrome/.test(ua)?'Chrome':/Safari/.test(ua)?'Safari':/Firefox/.test(ua)?'Firefox':'Browser';
+  return `${dev} · ${br}`;
+}
+
+function logActivity(action, detail) {
+  if (!currentUser || !teamCode) return;
+  const entry = {
+    id: genId(),
+    userName: currentUser,
+    action,
+    detail: detail || '',
+    timestamp: new Date().toISOString(),
+    device: getDeviceInfo(),
+    teamCode,
+  };
+  fbSave('activity', entry);
+}
+
+function setCurrentUser(name) {
+  currentUser = name;
+  localStorage.setItem(USER_KEY, name);
+  document.getElementById('user-name-display').textContent = name;
+}
+
+function promptUserName() {
+  const s = getSettings();
+  const staff = [
+    s.coachName, s.asst1Name, s.asst2Name, s.asst3Name
+  ].filter(Boolean);
+
+  openModal('Who are you?', `
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:14px">
+      Select your name so the activity log knows who is making changes.
+    </p>
+    ${staff.length ? `
+      <div class="form-group">
+        <label>Select from coaching staff</label>
+        <div style="display:flex;flex-direction:column;gap:6px" id="staff-pick">
+          ${staff.map(n=>`<button class="btn btn-secondary" style="text-align:left;justify-content:flex-start" data-name="${esc(n)}">${esc(n)}</button>`).join('')}
+        </div>
+      </div>
+      <div style="text-align:center;font-size:.8rem;color:var(--muted);margin:8px 0">— or type a custom name —</div>
+    ` : ''}
+    <div class="form-group">
+      <label>Name</label>
+      <input id="user-name-input" placeholder="Your name" value="${esc(currentUser||'')}">
+    </div>
+  `, `
+    <button class="btn btn-primary" id="modal-submit" style="width:100%;justify-content:center">Sign In</button>
+  `, () => {
+    const name = document.getElementById('user-name-input').value.trim();
+    if (!name) { toast('Enter your name'); return; }
+    setCurrentUser(name);
+    closeModal();
+    logActivity('signed_in', `Joined via team code on ${getDeviceInfo()}`);
+    toast(`Signed in as ${name} ✔`);
+  });
+
+  // Wire staff pick buttons
+  setTimeout(() => {
+    document.querySelectorAll('#staff-pick [data-name]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('user-name-input').value = btn.dataset.name;
+      });
+    });
+  }, 0);
+}
+
+document.getElementById('user-pill').addEventListener('click', promptUserName);
+
+// ── ACTIVITY TAB ──────────────────────────────────────────────────────────────
+function renderActivityTab() {
+  const s = getSettings();
+  const pin = s.adminPin;
+  const gate = document.getElementById('activity-pin-gate');
+  const content = document.getElementById('activity-content');
+  const clearBtn = document.getElementById('clear-activity-btn');
+
+  if (!pin || activityPinUnlocked) {
+    gate.innerHTML = '';
+    content.style.display = 'block';
+    if (clearBtn) clearBtn.style.display = 'inline-flex';
+    renderActivityList();
+    return;
+  }
+
+  content.style.display = 'none';
+  if (clearBtn) clearBtn.style.display = 'none';
+  gate.innerHTML = `
+    <div class="card" style="max-width:340px;margin:40px auto;text-align:center;padding:28px">
+      <div style="font-size:2rem;margin-bottom:12px">🔒</div>
+      <div style="font-weight:700;font-size:1rem;margin-bottom:6px">Activity Log — Admin Only</div>
+      <div style="font-size:.82rem;color:var(--muted);margin-bottom:18px">Enter your PIN to view sign-in history and coach activity.</div>
+      <input class="pin-input" id="pin-entry" type="password" maxlength="4" placeholder="• • • •">
+      <button class="btn btn-primary" id="pin-submit" style="width:100%;margin-top:12px;justify-content:center">Unlock</button>
+      <div id="pin-error" style="color:var(--red);font-size:.8rem;margin-top:8px;min-height:16px"></div>
+    </div>
+  `;
+
+  document.getElementById('pin-submit').addEventListener('click', () => {
+    const entered = document.getElementById('pin-entry').value.trim();
+    if (entered === String(pin)) {
+      activityPinUnlocked = true;
+      renderActivityTab();
+    } else {
+      document.getElementById('pin-error').textContent = 'Incorrect PIN';
+      logActivity('failed_pin', 'Attempted to access Activity Log with wrong PIN');
+    }
+  });
+  document.getElementById('pin-entry').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('pin-submit').click();
+  });
+}
+
+function renderActivityList() {
+  const el = document.getElementById('activity-content'); if (!el) return;
+  const entries = [...cache.activity]
+    .sort((a,b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, 100);
+
+  if (!entries.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No activity recorded yet. Activity is logged automatically as coaches use the app.</p></div>`;
+    return;
+  }
+
+  const ACTION_ICON = {
+    signed_in:     '🟢',
+    saved_stats:   '📊',
+    added_player:  '➕',
+    edited_player: '✏️',
+    deleted_player:'🗑️',
+    added_note:    '📝',
+    deleted_note:  '🗑️',
+    saved_lineup:  '📋',
+    saved_pitch:   '⚾',
+    added_game:    '📅',
+    edited_game:   '📅',
+    deleted_game:  '🗑️',
+    added_resource:'🔗',
+    failed_pin:    '🔴',
+    default:       '•',
+  };
+
+  // Group by date
+  const grouped = {};
+  entries.forEach(e => {
+    const d = e.timestamp.slice(0,10);
+    if (!grouped[d]) grouped[d] = [];
+    grouped[d].push(e);
+  });
+
+  el.innerHTML = Object.entries(grouped).map(([date,items]) => `
+    <div style="font-size:.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 6px;${date===today()?'color:var(--green-dark)':''}">${date===today()?'Today':date}</div>
+    <div class="card" style="padding:8px 14px">
+      ${items.map(e => {
+        const icon = ACTION_ICON[e.action] || ACTION_ICON.default;
+        const t = new Date(e.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        return `<div class="activity-item">
+          <div class="ai-icon">${icon}</div>
+          <div class="ai-body">
+            <div class="ai-who">${esc(e.userName||'Unknown')}</div>
+            <div class="ai-what">${esc(e.detail||e.action||'')}</div>
+            <div class="ai-meta">${t} · ${esc(e.device||'')}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+document.getElementById('clear-activity-btn').addEventListener('click', () => {
+  if (!confirm('Clear the entire activity log? This cannot be undone.')) return;
+  cache.activity.forEach(e => fbDelete('activity', e.id));
+  renderActivityList();
+  toast('Activity log cleared');
+});
+
+// Hook logActivity into key app actions
+const _origFbSave = fbSave;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 if (teamCode) {
