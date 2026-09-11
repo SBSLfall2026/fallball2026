@@ -7,6 +7,8 @@
   <!-- Firebase compat SDKs — loaded as regular scripts, no module imports needed -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <style>
     :root {
       --green:       #2d6a2d;
@@ -610,25 +612,63 @@
   </div>
 </div>
 
-<!-- Coach Auth Gate (shown after team code, before full access) -->
+<!-- Coach Auth Gate — Firebase Auth sign-in -->
 <div id="coach-auth-overlay" style="display:none;position:fixed;inset:0;background:var(--green-dark);z-index:510;align-items:center;justify-content:center;padding:20px">
-  <div class="team-card">
-    <div style="font-size:2rem;margin-bottom:8px">🔐</div>
-    <h2 style="margin-bottom:6px">Coach Verification</h2>
-    <p>Select your name and enter your PIN.<br>Contact the head coach if you need access.</p>
-    <div class="form-group" style="text-align:left">
-      <label>Your Name</label>
-      <select id="ca-name" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem;background:white">
-        <option value="">-- Select your name --</option>
-      </select>
+  <div class="team-card" style="max-width:420px">
+    <div style="font-size:2rem;margin-bottom:8px" id="ca-logo">🥎</div>
+    <h2 id="ca-title" style="margin-bottom:4px">Coach Sign In</h2>
+    <p id="ca-subtitle" style="margin-bottom:20px;font-size:.85rem">Sign in to access your team.</p>
+
+    <!-- Sign In form -->
+    <div id="ca-signin-form">
+      <div class="form-group" style="text-align:left"><label>Email</label>
+        <input id="ca-email" type="email" placeholder="your@email.com" autocomplete="email"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <div class="form-group" style="text-align:left"><label>Password</label>
+        <input id="ca-password" type="password" placeholder="Your password" autocomplete="current-password"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <button class="btn btn-primary" id="ca-signin-btn" style="width:100%;justify-content:center;padding:10px;margin-bottom:8px">Sign In</button>
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <button class="btn btn-secondary btn-sm" id="ca-show-register">Create Account</button>
+        <button class="btn btn-secondary btn-sm" id="ca-show-reset">Forgot Password?</button>
+      </div>
     </div>
-    <div class="form-group" style="text-align:left">
-      <label>Your PIN</label>
-      <input class="pin-input" id="ca-pin" type="password" maxlength="6" placeholder="• • • •">
+
+    <!-- Create Account form -->
+    <div id="ca-register-form" style="display:none">
+      <div class="form-group" style="text-align:left"><label>Your Full Name *</label>
+        <input id="ca-reg-name" placeholder="e.g. Jessica Danison"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <div class="form-group" style="text-align:left"><label>Email *</label>
+        <input id="ca-reg-email" type="email" placeholder="your@email.com" autocomplete="email"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <div class="form-group" style="text-align:left"><label>Password *</label>
+        <input id="ca-reg-pass" type="password" placeholder="At least 6 characters" autocomplete="new-password"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <button class="btn btn-primary" id="ca-register-btn" style="width:100%;justify-content:center;padding:10px;margin-bottom:8px">Create Account</button>
+      <button class="btn btn-secondary btn-sm" id="ca-show-signin">← Back to Sign In</button>
     </div>
-    <button class="btn btn-primary" id="ca-submit" style="width:100%;justify-content:center;padding:10px">Verify &amp; Enter</button>
-    <div class="team-error" id="ca-error"></div>
-    <div style="margin-top:12px">
+
+    <!-- Forgot Password form -->
+    <div id="ca-reset-form" style="display:none">
+      <p style="font-size:.85rem;margin-bottom:12px">Enter your email and we'll send a password reset link.</p>
+      <div class="form-group" style="text-align:left"><label>Email</label>
+        <input id="ca-reset-email" type="email" placeholder="your@email.com"
+          style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
+      <button class="btn btn-primary" id="ca-reset-btn" style="width:100%;justify-content:center;padding:10px;margin-bottom:8px">Send Reset Email</button>
+      <button class="btn btn-secondary btn-sm" id="ca-reset-back">← Back to Sign In</button>
+    </div>
+
+    <!-- Not approved message -->
+    <div id="ca-not-approved" style="display:none;text-align:center;padding:12px 0">
+      <div style="font-size:1.5rem;margin-bottom:8px">🚫</div>
+      <div style="font-weight:700;margin-bottom:6px">Access Not Approved</div>
+      <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px">Your email isn't on the approved coaches list for this team. Contact the head coach to be added.</div>
+      <button class="btn btn-secondary btn-sm" id="ca-signout-noauth">Sign Out</button>
+    </div>
+
+    <div class="team-error" id="ca-error" style="margin-top:10px"></div>
+    <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.1);padding-top:10px">
       <button class="btn btn-secondary btn-sm" id="ca-switch-team" style="font-size:.75rem">← Switch Team</button>
     </div>
   </div>
@@ -649,7 +689,8 @@ const firebaseConfig = {
   appId:             "1:532650503465:web:1d461c50443ac811525b38",
 };
 firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+const db   = firebase.firestore();
+const auth = firebase.auth();
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
@@ -692,9 +733,8 @@ function setupListeners() {
           if (name === 'fields'    && cache.fields.length    === 0) seedFields();
           if (name === 'resources' && cache.resources.length === 0) seedResources();
           if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
-          if (name === 'coaches' && cache.coaches.length > 0 && !isCoachVerified()) {
-            const overlay = document.getElementById('coach-auth-overlay');
-            if (overlay && overlay.style.display !== 'none') showCoachAuthOverlay();
+          if (name === 'coaches') {
+            renderSettingsCoachList(); // refresh coach list in settings if open
           }
         },
         err => console.warn('Listener error:', name, err)
@@ -2395,26 +2435,41 @@ function launchApp() {
   hideTeamOverlay();
   document.getElementById('team-code-display').textContent = teamCode;
   setupListeners();
-  // Wait briefly for first snapshot to arrive, then render
-  setTimeout(()=>{
-    seedResources(); seedFields(); seedOpponents(); applySettings();
-    // Check coach verification
-    if (!isCoachVerified()) {
+
+  // Firebase Auth state drives access — show overlay until signed in & approved
+  auth.onAuthStateChanged(async user => {
+    if (!user) {
+      // Not signed in — show Firebase Auth sign-in overlay
       showCoachAuthOverlay();
-      // Re-check after coaches load from Firebase
-      const checkInterval = setInterval(() => {
-        if (cache.coaches.length > 0 || document.getElementById('coach-auth-overlay').style.display === 'none') {
-          clearInterval(checkInterval);
-          if (!isCoachVerified() && cache.coaches.length > 0) showCoachAuthOverlay();
-        }
-      }, 500);
-    } else {
-      const name = localStorage.getItem(USER_KEY);
-      if (name) { setCurrentUser(name); }
-      else { document.getElementById('user-name-display').textContent = 'Set name'; }
+      return;
     }
-    renderRoster(); syncGameSelects(); syncPlayerSelects();
-  }, 600);
+
+    // Signed in with Firebase — check if this email is approved for this team
+    const email = user.email?.toLowerCase();
+    const approvedCoach = cache.coaches.find(c=>c.email===email&&c.active!==false);
+
+    // If coaches list is empty (first ever user) OR this email is approved → let in
+    if (cache.coaches.length === 0 || approvedCoach) {
+      document.getElementById('coach-auth-overlay').style.display = 'none';
+      const displayName = approvedCoach?.name || user.displayName || email;
+      setCurrentUser(displayName);
+      applySettings(); seedResources(); seedFields(); seedOpponents();
+      renderRoster(); syncGameSelects(); syncPlayerSelects();
+      // Auto-add first user as head coach if no coaches exist
+      if (cache.coaches.length === 0) {
+        fbSave('coaches',{ id:genId(), name: user.displayName||email, email, role:'Head Coach', active:true, createdAt:new Date().toISOString() });
+        toast(`Welcome! You've been added as Head Coach. Add other coaches in ⚙️ Settings.`);
+        logActivity('signed_in', `First login — auto-registered as Head Coach on ${getDeviceInfo()}`);
+      } else {
+        logActivity('signed_in', `Signed in on ${getDeviceInfo()}`);
+      }
+    } else {
+      // Signed in with Firebase but not on the approved list
+      showCoachAuthOverlay();
+      showNotApproved();
+      fbSave('activity',{ id:genId(), userName:user.displayName||email, action:'access_denied', detail:`Not on approved coach list for ${teamCode}`, timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
+    }
+  });
 }
 
 // ── RULES & COMPLIANCE ───────────────────────────────────────────────────────
@@ -2976,127 +3031,213 @@ function showCopyFallback(text) {
   `,`<button class="btn btn-primary" id="modal-cancel">Done</button>`);
 }
 
-// ── COACH AUTH ───────────────────────────────────────────────────────────────
-const COACH_AUTH_KEY = 'fb26_coach_verified'; // session flag
+// ── COACH AUTH (Firebase Authentication) ─────────────────────────────────────
 
+// ── Coach access list (stored in Firestore coaches collection) ────────────────
 function renderSettingsCoachList() {
   const el = document.getElementById('s-coaches-list'); if (!el) return;
   const coaches = cache.coaches;
   if (!coaches.length) {
-    el.innerHTML = `<div style="font-size:.8rem;color:var(--muted);margin-bottom:6px">No coach accounts yet. Add yourself first — you'll need your name and PIN to sign in.</div>`;
+    el.innerHTML = `<div style="font-size:.8rem;color:var(--muted);margin-bottom:6px">No coaches approved yet. Add email addresses of coaches who should have access.</div>`;
     return;
   }
   el.innerHTML = coaches.map(c => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:.875rem;font-weight:500">${esc(c.name)}</span>
+      <div style="flex:1">
+        <div style="font-size:.875rem;font-weight:500">${esc(c.name)}</div>
+        <div style="font-size:.72rem;color:var(--muted)">${esc(c.email||'')}</div>
+      </div>
       <span class="badge" style="background:var(--green-light);color:var(--green-dark)">${esc(c.role||'Coach')}</span>
-      <button class="btn btn-secondary btn-sm" data-action="reset-pin" data-cid="${esc(c.id)}" style="font-size:.72rem">Reset PIN</button>
       <button class="btn btn-danger btn-sm" data-action="del-coach" data-cid="${esc(c.id)}" style="font-size:.72rem">✕</button>
     </div>
   `).join('');
-
   el.querySelectorAll('[data-action="del-coach"]').forEach(b=>b.addEventListener('click',()=>{
-    if(!confirm(`Remove ${cache.coaches.find(c=>c.id===b.dataset.cid)?.name}?`)) return;
+    if(!confirm(`Remove ${cache.coaches.find(c=>c.id===b.dataset.cid)?.name}? They will lose access immediately.`)) return;
     fbDelete('coaches',b.dataset.cid); renderSettingsCoachList(); toast('Coach removed');
-  }));
-  el.querySelectorAll('[data-action="reset-pin"]').forEach(b=>b.addEventListener('click',()=>{
-    const c = cache.coaches.find(x=>x.id===b.dataset.cid); if(!c) return;
-    openResetPinModal(c);
   }));
 }
 
 function openAddCoachModal() {
-  openModal('Add Coach Account', `
-    <div class="form-group"><label>Full Name *</label><input id="nc-name" placeholder="e.g. Jessica Danison"></div>
-    <div class="form-group">
-      <label>Role</label>
+  openModal('Add Coach Access', `
+    <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px">The coach must create their own account first using the app's sign-in screen, then you approve them here.</div>
+    <div class="form-group"><label>Full Name *</label><input id="nc-name" placeholder="e.g. John Smith"></div>
+    <div class="form-group"><label>Email Address * <span style="font-size:.72rem">(must match what they used to create their account)</span></label>
+      <input id="nc-email" type="email" placeholder="coach@email.com"></div>
+    <div class="form-group"><label>Role</label>
       <select id="nc-role">
         <option value="Head Coach">Head Coach</option>
         <option value="Assistant Coach" selected>Assistant Coach</option>
       </select>
     </div>
-    <div class="form-group"><label>PIN * <span style="font-size:.72rem;color:var(--muted)">(4–6 digits, coach uses this to verify identity)</span></label>
-      <input id="nc-pin" type="password" maxlength="6" placeholder="e.g. 1234" style="letter-spacing:.2em;font-size:1.1rem"></div>
-    <div class="form-group"><label>Confirm PIN</label>
-      <input id="nc-pin2" type="password" maxlength="6" placeholder="Repeat PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
   `, `
     <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-    <button class="btn btn-primary"   id="modal-submit">Add Coach</button>
+    <button class="btn btn-primary" id="modal-submit">Add Coach</button>
   `, () => {
-    const name = document.getElementById('nc-name').value.trim();
-    const pin  = document.getElementById('nc-pin').value.trim();
-    const pin2 = document.getElementById('nc-pin2').value.trim();
-    if (!name || !pin) { toast('Name and PIN required'); return; }
-    if (pin !== pin2)  { toast('PINs do not match'); return; }
-    if (!/^\d{4,6}$/.test(pin)) { toast('PIN must be 4–6 digits'); return; }
-    fbSave('coaches', { id: genId(), name, pin, role: document.getElementById('nc-role').value, active: true, createdAt: new Date().toISOString() });
+    const name  = document.getElementById('nc-name').value.trim();
+    const email = document.getElementById('nc-email').value.trim().toLowerCase();
+    if (!name || !email) { toast('Name and email required'); return; }
+    fbSave('coaches',{ id:genId(), name, email, role:document.getElementById('nc-role').value, active:true, createdAt:new Date().toISOString() });
     closeModal(); renderSettingsCoachList(); toast(`${name} added ✔`);
   });
 }
 
-function openResetPinModal(coach) {
-  openModal(`Reset PIN — ${coach.name}`, `
-    <div class="form-group"><label>New PIN</label>
-      <input id="rp-pin" type="password" maxlength="6" placeholder="New 4–6 digit PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
-    <div class="form-group"><label>Confirm PIN</label>
-      <input id="rp-pin2" type="password" maxlength="6" placeholder="Repeat PIN" style="letter-spacing:.2em;font-size:1.1rem"></div>
-  `, `
-    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-    <button class="btn btn-primary"   id="modal-submit">Save New PIN</button>
-  `, () => {
-    const pin  = document.getElementById('rp-pin').value.trim();
-    const pin2 = document.getElementById('rp-pin2').value.trim();
-    if (!pin || pin !== pin2) { toast('PINs must match'); return; }
-    if (!/^\d{4,6}$/.test(pin)) { toast('PIN must be 4–6 digits'); return; }
-    fbSave('coaches', { ...coach, pin });
-    closeModal(); toast(`PIN updated for ${coach.name}`);
-  });
-}
-
+// ── Firebase Auth sign-in overlay ─────────────────────────────────────────────
 function showCoachAuthOverlay() {
   const overlay = document.getElementById('coach-auth-overlay');
-  const sel     = document.getElementById('ca-name');
   overlay.style.display = 'flex';
+  showSignInForm();
 
-  // Populate coach names
-  sel.innerHTML = '<option value="">-- Select your name --</option>' +
-    cache.coaches.filter(c=>c.active!==false).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.role||'Coach')})</option>`).join('');
-
-  document.getElementById('ca-submit').onclick = () => {
-    const coachId = sel.value;
-    const pin     = document.getElementById('ca-pin').value.trim();
-    const errEl   = document.getElementById('ca-error');
-    if (!coachId || !pin) { errEl.textContent = 'Select your name and enter your PIN'; return; }
-    const coach = cache.coaches.find(c=>c.id===coachId);
-    if (!coach || coach.pin !== pin) {
-      errEl.textContent = 'Incorrect PIN — contact the head coach if you need help';
-      // Log failed attempt (we have team code but not full access yet)
-      fbSave('activity', { id:genId(), userName:coach?.name||'Unknown', action:'failed_pin', detail:'Failed coach verification', timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
-      return;
-    }
-    // Success
-    overlay.style.display = 'none';
-    sessionStorage.setItem(COACH_AUTH_KEY, coachId);
-    setCurrentUser(coach.name);
-    logActivity('signed_in', `Verified and signed in on ${getDeviceInfo()}`);
-    toast(`Welcome, ${coach.name} ✔`);
-  };
-
-  document.getElementById('ca-pin').onkeydown = e => { if(e.key==='Enter') document.getElementById('ca-submit').click(); };
-
-  document.getElementById('ca-switch-team').onclick = () => {
+  // Button wiring
+  document.getElementById('ca-show-register').onclick  = showRegisterForm;
+  document.getElementById('ca-show-signin').onclick    = showSignInForm;
+  document.getElementById('ca-show-reset').onclick     = showResetForm;
+  document.getElementById('ca-reset-back').onclick     = showSignInForm;
+  document.getElementById('ca-signout-noauth').onclick = () => { auth.signOut(); overlay.style.display='none'; location.reload(); };
+  document.getElementById('ca-switch-team').onclick    = () => {
+    auth.signOut();
     localStorage.removeItem('fb26_teamCode');
-    sessionStorage.removeItem(COACH_AUTH_KEY);
-    overlay.style.display = 'none';
+    overlay.style.display='none';
     location.reload();
   };
+  // Sign In
+  document.getElementById('ca-signin-btn').onclick = async () => {
+    const email = document.getElementById('ca-email').value.trim();
+    const pass  = document.getElementById('ca-password').value;
+    const errEl = document.getElementById('ca-error');
+    errEl.textContent = '';
+    if (!email || !pass) { errEl.textContent='Enter your email and password'; return; }
+    try {
+      document.getElementById('ca-signin-btn').textContent = 'Signing in…';
+      await auth.signInWithEmailAndPassword(email, pass);
+      // onAuthStateChanged will handle the rest
+    } catch(e) {
+      document.getElementById('ca-signin-btn').textContent = 'Sign In';
+      errEl.textContent = friendlyAuthError(e.code);
+    }
+  };
+  document.getElementById('ca-password').onkeydown = e => { if(e.key==='Enter') document.getElementById('ca-signin-btn').click(); };
+  // Create Account
+  document.getElementById('ca-register-btn').onclick = async () => {
+    const name  = document.getElementById('ca-reg-name').value.trim();
+    const email = document.getElementById('ca-reg-email').value.trim();
+    const pass  = document.getElementById('ca-reg-pass').value;
+    const errEl = document.getElementById('ca-error');
+    errEl.textContent = '';
+    if (!name || !email || !pass) { errEl.textContent='All fields required'; return; }
+    try {
+      document.getElementById('ca-register-btn').textContent = 'Creating…';
+      await auth.createUserWithEmailAndPassword(email, pass);
+      await auth.currentUser.updateProfile({ displayName: name });
+      // onAuthStateChanged handles the rest
+    } catch(e) {
+      document.getElementById('ca-register-btn').textContent = 'Create Account';
+      errEl.textContent = friendlyAuthError(e.code);
+    }
+  };
+  // Forgot Password
+  document.getElementById('ca-reset-btn').onclick = async () => {
+    const email = document.getElementById('ca-reset-email').value.trim();
+    const errEl = document.getElementById('ca-error');
+    if (!email) { errEl.textContent='Enter your email address'; return; }
+    try {
+      await auth.sendPasswordResetEmail(email);
+      errEl.style.color='#166534';
+      errEl.textContent=`Reset email sent to ${email}. Check your inbox.`;
+    } catch(e) {
+      errEl.style.color='var(--red)';
+      errEl.textContent = friendlyAuthError(e.code);
+    }
+  };
+}
+
+function showSignInForm() {
+  document.getElementById('ca-signin-form').style.display='block';
+  document.getElementById('ca-register-form').style.display='none';
+  document.getElementById('ca-reset-form').style.display='none';
+  document.getElementById('ca-not-approved').style.display='none';
+  document.getElementById('ca-title').textContent='Coach Sign In';
+  document.getElementById('ca-subtitle').textContent='Sign in to access your team.';
+  document.getElementById('ca-error').textContent='';
+  document.getElementById('ca-signin-btn').textContent='Sign In';
+}
+function showRegisterForm() {
+  document.getElementById('ca-signin-form').style.display='none';
+  document.getElementById('ca-register-form').style.display='block';
+  document.getElementById('ca-reset-form').style.display='none';
+  document.getElementById('ca-not-approved').style.display='none';
+  document.getElementById('ca-title').textContent='Create Account';
+  document.getElementById('ca-subtitle').textContent='First time? Create your coach account.';
+  document.getElementById('ca-error').textContent='';
+}
+function showResetForm() {
+  document.getElementById('ca-signin-form').style.display='none';
+  document.getElementById('ca-register-form').style.display='none';
+  document.getElementById('ca-reset-form').style.display='block';
+  document.getElementById('ca-not-approved').style.display='none';
+  document.getElementById('ca-title').textContent='Reset Password';
+  document.getElementById('ca-subtitle').textContent='';
+  document.getElementById('ca-error').textContent='';
+  document.getElementById('ca-error').style.color='var(--red)';
+}
+
+function showNotApproved() {
+  document.getElementById('ca-signin-form').style.display='none';
+  document.getElementById('ca-register-form').style.display='none';
+  document.getElementById('ca-reset-form').style.display='none';
+  document.getElementById('ca-not-approved').style.display='block';
+  document.getElementById('ca-title').textContent='Access Denied';
+  document.getElementById('ca-subtitle').textContent='';
+}
+
+function friendlyAuthError(code) {
+  const map = {
+    'auth/user-not-found':      'No account found with that email. Try creating one.',
+    'auth/wrong-password':      'Incorrect password. Try again or use Forgot Password.',
+    'auth/invalid-email':       'Please enter a valid email address.',
+    'auth/email-already-in-use':'An account with that email already exists. Sign in instead.',
+    'auth/weak-password':       'Password must be at least 6 characters.',
+    'auth/too-many-requests':   'Too many failed attempts. Try again later or reset your password.',
+    'auth/network-request-failed': 'Network error — check your connection and try again.',
+    'auth/invalid-credential':  'Email or password is incorrect.',
+  };
+  return map[code] || `Sign-in error (${code}). Try again.`;
 }
 
 function isCoachVerified() {
-  // If no coaches are set up yet, bypass verification (lets head coach set things up first)
-  if (!cache.coaches.length) return true;
-  return !!sessionStorage.getItem(COACH_AUTH_KEY);
+  return auth.currentUser !== null;
 }
+
+// User pill → account options
+document.getElementById('user-pill').addEventListener('click', () => {
+  const user = auth.currentUser;
+  if (!user) return;
+  const s = getSettings();
+  const coach = cache.coaches.find(c=>c.email===user.email?.toLowerCase());
+  openModal('My Account', `
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:1.5rem;margin-bottom:6px">👤</div>
+      <div style="font-weight:700;font-size:1rem">${esc(user.displayName||user.email||'Coach')}</div>
+      <div style="font-size:.8rem;color:var(--muted);margin-top:3px">${esc(user.email||'')}</div>
+      <div style="font-size:.8rem;color:var(--muted);margin-top:2px">${esc(coach?.role||'Coach')} · ${esc(s.teamName||'Team')}</div>
+    </div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Close</button>
+    <button class="btn btn-secondary" id="acc-chg-pass">Change Password</button>
+    <button class="btn btn-danger"    id="acc-signout">Sign Out</button>
+  `);
+  setTimeout(() => {
+    document.getElementById('acc-signout')?.addEventListener('click',()=>{
+      auth.signOut(); closeModal(); location.reload();
+    });
+    document.getElementById('acc-chg-pass')?.addEventListener('click',()=>{
+      if (user.email) {
+        auth.sendPasswordResetEmail(user.email)
+          .then(()=>{ closeModal(); toast(`Password reset email sent to ${user.email}`); })
+          .catch(e=>toast(friendlyAuthError(e.code)));
+      }
+    });
+  },0);
+});
 
 // ── OPPONENTS ────────────────────────────────────────────────────────────────
 const OPP_SEEDS = [
@@ -3264,7 +3405,7 @@ function promptUserName() {
   }, 0);
 }
 
-document.getElementById('user-pill').addEventListener('click', promptUserName);
+// user-pill click is handled inside the Coach Auth section above
 
 // ── ACTIVITY TAB ──────────────────────────────────────────────────────────────
 function renderActivityTab() {
