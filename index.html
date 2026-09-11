@@ -2097,7 +2097,10 @@ function buildPlayerGameTrend(playerId) {
 
 function renderPlayerSeasonCards() {
   const el = document.getElementById('player-season-header'); if (!el) return;
-  const players = cache.players.filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular'))
+  // Show ALL rostered players in stats — active, inactive, and injured
+  // Exclude only borrowed/callup players who aren't part of the core team
+  const players = cache.players
+    .filter(p=>!p.playerType||p.playerType==='regular')
     .sort((a,b)=>rosterSortKey(a)-rosterSortKey(b)||(a.name||'').localeCompare(b.name||''));
   const all = cache.stats;
   // Always show all active players — those with no stats show "0 GP"
@@ -2178,7 +2181,8 @@ function renderStatsContent(gameId) {
   // Build ordered list from batting order, then append any active players not yet in the order
   const lpEntries  = [...lineup.entries].sort((a,b)=>(a.battingOrder||0)-(b.battingOrder||0));
   const inOrderIds = new Set(lpEntries.filter(e=>e.battingOrder>0).map(e=>e.playerId));
-  const activePlayers = cache.players.filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular'));
+  // Include all rostered players regardless of active status
+  const activePlayers = cache.players.filter(p=>!p.playerType||p.playerType==='regular');
   // All players: those in batting order (sorted) + any not yet added (alphabetical)
   const lpPlayers = [
     ...lpEntries.filter(e=>e.battingOrder>0).map(e=>players.find(p=>p.id===e.playerId)).filter(Boolean),
@@ -2269,7 +2273,8 @@ function renderStatsContent(gameId) {
 
 function renderSeasonStats() {
   const el      = document.getElementById('stats-content');
-  const players = cache.players.filter(p=>p.active!==false);
+  // Include all rostered players in season totals — active, inactive, injured
+  const players = cache.players.filter(p=>!p.playerType||p.playerType==='regular');
   const all     = cache.stats;
   const rows    = players.map(p=>{
     const ps=all.filter(s=>s.playerId===p.id);
@@ -2305,7 +2310,7 @@ document.getElementById('stats-toggle-btn').addEventListener('click', e=>{
 document.getElementById('export-btn').addEventListener('click', exportStatsCSV);
 
 function exportStatsCSV() {
-  const players = cache.players.filter(p=>p.active!==false);
+  const players = cache.players.filter(p=>!p.playerType||p.playerType==='regular');
   const all     = cache.stats;
   const header  = ['Name','GP','AB','H','2B','3B','HR','RBI','R','BB','K','K-Look','SB','E','AVG','OBP','SLG'];
   const dataRows = players.map(p=>{
