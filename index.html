@@ -1221,9 +1221,11 @@ function openSettingsModal() {
           const pIds = cache.players.slice(0,3).map(p=>`${p.name}→${p.id}`).join(', ');
           const statCount = cache.stats.length;
           const statSample = cache.stats[0] ? `playerId:${cache.stats[0].playerId}` : 'none';
+          const allPIds = cache.players.map(p=>`${p.name}→${p.id}`).join('\n');
           res.innerHTML = `✅ Firebase OK · Team: ${teamCode}<br>
-            Players (first 3 IDs): ${pIds}<br>
-            Stats in cache: ${statCount} · Sample stat: ${statSample}`;
+            Stats in cache: ${statCount} · Sample: ${statSample}<br>
+            <details><summary style="cursor:pointer">All player IDs (click to expand)</summary>
+            <pre style="font-size:.65rem;margin-top:4px;white-space:pre-wrap">${esc(allPIds)}</pre></details>`;
         } else {
           res.style.color = '#991b1b';
           res.textContent = '❌ Write succeeded but read failed';
@@ -2158,56 +2160,84 @@ function buildPlayerGameTrend(playerId) {
 
 function renderPlayerSeasonCards() {
   const el = document.getElementById('player-season-header'); if (!el) return;
-  // Show ALL rostered players in stats — active, inactive, and injured
-  // Exclude only borrowed/callup players who aren't part of the core team
   const players = cache.players
     .filter(p=>!p.playerType||p.playerType==='regular')
     .sort((a,b)=>rosterSortKey(a)-rosterSortKey(b)||(a.name||'').localeCompare(b.name||''));
+  if (!players.length) { el.innerHTML=''; return; }
+
   const all = cache.stats;
-  // Always show all active players — those with no stats show "0 GP"
+
   const cards = players.map(p=>{
     const ps=all.filter(s=>s.playerId===p.id);
+    const noStats=ps.length===0;
     const ab=sumf(ps,'ab'),b1=sumf(ps,'1b'),b2=sumf(ps,'2b'),b3=sumf(ps,'3b'),hr=sumf(ps,'hr');
     const h=b1+b2+b3+hr,bb=sumf(ps,'bb'),sb=sumf(ps,'sb'),rbi=sumf(ps,'rbi'),k=sumf(ps,'k'),kl=sumf(ps,'kl');
     const avg=ab>0?(h/ab).toFixed(3):'—';
     const obp=(ab+bb)>0?((h+bb)/(ab+bb)).toFixed(3):'—';
     const slg=ab>0?((b1+2*b2+3*b3+4*hr)/ab).toFixed(3):'—';
-    const avgCls=ab>0?(h/ab>=0.300?'avg-good':h/ab>=0.200?'avg-ok':'avg-low'):'empty';
-    const trend = ps.length>=2 ? buildPlayerGameTrend(p.id) : '';
-    const noStats = ps.length===0;
-    return `
-      <div class="player-season-card${noStats?' inactive':''}" data-pid="${esc(p.id)}" style="${noStats?'opacity:.55':''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">
-          <div class="psc-name">${esc(dname(p))}${p.number?' <span style="color:var(--muted);font-size:.8rem">#'+p.number+'</span>':''}</div>
-          <span style="font-size:.72rem;color:var(--muted)">${noStats?'No stats yet':'Click to view game ↓'}</span>
-        </div>
-        <div class="psc-stats">
-          <span class="psc-stat">${ps.length} GP</span>
-          <span class="psc-stat">${ab} AB</span>
-          <span class="psc-stat ${avgCls}">AVG ${avg}</span>
-          <span class="psc-stat">OBP ${obp}</span>
-          <span class="psc-stat">SLG ${slg}</span>
-          <span class="psc-stat">${hr} HR</span>
-          <span class="psc-stat">${rbi} RBI</span>
-          <span class="psc-stat">${sb} SB</span>
-          <span class="psc-stat">${k}K / ${kl}<span class="bk" style="font-size:.75rem">K</span></span>
-        </div>
-        ${trend}
-      </div>`;
-  }).filter(Boolean).join('');
+    const avgNum=ab>0?h/ab:null;
+    const avgColor=avgNum===null?'var(--muted)':avgNum>=0.300?'#166534':avgNum>=0.200?'#92400e':'#991b1b';
+    const avgBg=avgNum===null?'var(--border)':avgNum>=0.300?'#dcfce7':avgNum>=0.200?'#fef9c3':'#fee2e2';
+    const statusBadge = p.active===false
+      ? `<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:.65rem">Inactive</span>`
+      : p.injured
+        ? `<span class="badge badge-injured" style="font-size:.65rem">Injured</span>`
+        : `<span class="badge" style="background:var(--green-light);color:var(--green-dark);font-size:.65rem">Active</span>`;
+    const trend = !noStats && ps.length>=2 ? `
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:.72rem;color:var(--muted);user-select:none;list-style:none">▶ Game-by-game trend</summary>
+        <div style="margin-top:6px">${buildPlayerGameTrend(p.id)}</div>
+      </details>` : '';
 
-  if (!players.length) { el.innerHTML=''; return; }
+    return `
+      <div class="card" style="padding:12px 14px${noStats?';opacity:.6':''}">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <!-- Left: player info -->
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.95rem;margin-bottom:2px">
+              ${esc(dname(p))}${p.number?` <span style="color:var(--muted);font-weight:400">#${p.number}</span>`:''}
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+              ${statusBadge}
+              ${(p.positions||[]).slice(0,3).map(pos=>`<span class="badge badge-pos" style="font-size:.62rem">${pos}</span>`).join('')}
+            </div>
+            <div style="font-size:.75rem;color:var(--muted)">${ps.length} GP · ${ab} AB · ${h} H</div>
+          </div>
+          <!-- Right: key stats -->
+          <div style="text-align:center;flex-shrink:0">
+            <div style="background:${avgBg};color:${avgColor};border-radius:6px;padding:4px 10px;margin-bottom:4px">
+              <div style="font-size:1.3rem;font-weight:800;line-height:1">${avg}</div>
+              <div style="font-size:.62rem;font-weight:600">AVG</div>
+            </div>
+          </div>
+        </div>
+        <!-- Stat row -->
+        ${noStats
+          ? `<div style="font-size:.78rem;color:var(--muted);font-style:italic;margin-top:6px">No stats entered yet</div>`
+          : `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:8px;text-align:center">
+              ${[['OBP',obp],['SLG',slg],['HR',hr],['RBI',rbi],['SB',sb],['K',k+kl]].map(([lbl,val])=>`
+                <div style="background:var(--bg);border-radius:4px;padding:3px 2px">
+                  <div style="font-size:.78rem;font-weight:700">${val}</div>
+                  <div style="font-size:.58rem;color:var(--muted)">${lbl}</div>
+                </div>`).join('')}
+            </div>`}
+        ${trend}
+        <div style="margin-top:8px;display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm stats-drill" data-pid="${esc(p.id)}" style="font-size:.72rem;flex:1;justify-content:center">📊 Full Stats</button>
+        </div>
+      </div>`;
+  }).join('');
 
   el.innerHTML = `
-    <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">⚡ Season Batting Overview — click a player to view their game stats</div>
-    ${cards}
-    <div style="font-size:.82rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 12px;border-top:1px solid var(--border);padding-top:14px">📋 Per-Game Stats</div>
+    <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">⚡ Season Batting — ${players.filter(p=>cache.stats.some(s=>s.playerId===p.id)).length}/${players.length} players with stats</div>
+    <div class="card-grid" style="margin-bottom:14px">${cards}</div>
+    <div style="font-size:.82rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;border-top:1px solid var(--border);padding-top:14px">📋 Per-Game Stats Entry</div>
   `;
 
-  el.querySelectorAll('.player-season-card').forEach(card=>{
-    card.addEventListener('click', ()=>{
-      el.querySelectorAll('.player-season-card').forEach(c=>c.classList.toggle('selected',c.dataset.pid===card.dataset.pid));
-      document.getElementById('stats-content')?.scrollIntoView({behavior:'smooth',block:'start'});
+  el.querySelectorAll('.stats-drill').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      openPlayerStatsModal(btn.dataset.pid);
     });
   });
 }
