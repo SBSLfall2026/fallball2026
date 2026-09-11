@@ -751,7 +751,9 @@ function setupListeners() {
           if (name === 'resources' && cache.resources.length === 0) seedResources();
           if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
           if (name === 'coaches') {
-            renderSettingsCoachList(); // refresh coach list in settings if open
+            _coachesLoaded = true;   // unblock checkTeamAccess
+            renderSettingsCoachList();
+            checkTeamAccess();       // re-run now that coaches data is available
           }
         },
         err => console.warn('Listener error:', name, err)
