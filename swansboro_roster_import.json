@@ -1,0 +1,180 @@
+{
+  "players": [
+    {
+      "id": "p001",
+      "name": "Kaleisha Black",
+      "nickname": "",
+      "number": "18",
+      "positions": ["C", "1B", "2B"],
+      "playerPhone": "",
+      "parentPhone": "404-775-7228",
+      "email": "",
+      "active": true
+    },
+    {
+      "id": "p002",
+      "name": "Anita Brown",
+      "nickname": "Nit",
+      "number": "88",
+      "positions": ["C", "3B"],
+      "playerPhone": "",
+      "parentPhone": "540-604-1699",
+      "email": "andrewbrowner@outlook.com",
+      "active": true
+    },
+    {
+      "id": "p003",
+      "name": "BlakyeLynn Cunningham",
+      "nickname": "",
+      "number": "13",
+      "positions": ["SS", "3B", "LF"],
+      "playerPhone": "",
+      "parentPhone": "910-330-0235",
+      "email": "",
+      "active": true
+    },
+    {
+      "id": "p004",
+      "name": "Theresa Danison",
+      "nickname": "",
+      "number": "7",
+      "positions": ["P", "C", "1B", "2B", "SS"],
+      "playerPhone": "",
+      "parentPhone": "910-459-1136",
+      "email": "jdanison2013@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p005",
+      "name": "Aria Davis",
+      "nickname": "",
+      "number": "",
+      "positions": ["RF"],
+      "playerPhone": "",
+      "parentPhone": "910-548-2649",
+      "email": "alex_warnock@yahoo.com",
+      "active": true
+    },
+    {
+      "id": "p006",
+      "name": "Leah Degen",
+      "nickname": "",
+      "number": "",
+      "positions": ["SS", "3B", "LF", "CF"],
+      "playerPhone": "",
+      "parentPhone": "919-985-6833",
+      "email": "degen.leah@icloud.com",
+      "active": true
+    },
+    {
+      "id": "p007",
+      "name": "Abigail Holley",
+      "nickname": "Gator",
+      "number": "4",
+      "positions": ["C", "LF"],
+      "playerPhone": "",
+      "parentPhone": "910-750-8575",
+      "email": "hollistertanya28@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p008",
+      "name": "Audree Ingram",
+      "nickname": "",
+      "number": "14",
+      "positions": ["P", "1B"],
+      "playerPhone": "",
+      "parentPhone": "252-639-8360",
+      "email": "james.ingram355@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p009",
+      "name": "Caroline Joyner",
+      "nickname": "",
+      "number": "21",
+      "positions": ["RF"],
+      "playerPhone": "",
+      "parentPhone": "443-623-0407",
+      "email": "ajoyner1@icloud.com",
+      "active": true
+    },
+    {
+      "id": "p010",
+      "name": "Alana McDonald",
+      "nickname": "",
+      "number": "10",
+      "positions": ["C", "1B", "2B", "CF"],
+      "playerPhone": "",
+      "parentPhone": "910-945-5964",
+      "email": "msmeaganm@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p011",
+      "name": "Caliah Morrow",
+      "nickname": "",
+      "number": "13",
+      "positions": ["2B"],
+      "playerPhone": "",
+      "parentPhone": "",
+      "email": "meggan.gaines@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p012",
+      "name": "Mazie Neuenschwander",
+      "nickname": "Maizey",
+      "number": "",
+      "positions": ["LF", "CF"],
+      "playerPhone": "",
+      "parentPhone": "419-605-8697",
+      "email": "abbey.neuen@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p013",
+      "name": "Paizley Neuenschwander",
+      "nickname": "",
+      "number": "",
+      "positions": ["C", "CF"],
+      "playerPhone": "",
+      "parentPhone": "252-503-6442",
+      "email": "",
+      "active": true
+    },
+    {
+      "id": "p014",
+      "name": "Mya Short",
+      "nickname": "",
+      "number": "18",
+      "positions": ["RF"],
+      "playerPhone": "",
+      "parentPhone": "910-265-5369",
+      "email": "caitlin.marie.short@gmail.com",
+      "active": true
+    },
+    {
+      "id": "p015",
+      "name": "Menuka Wilson",
+      "nickname": "",
+      "number": "",
+      "positions": ["C", "LF", "CF"],
+      "playerPhone": "",
+      "parentPhone": "252-673-1360",
+      "email": "",
+      "active": true
+    },
+    {
+      "id": "p016",
+      "name": "Sophia Buchanan",
+      "nickname": "",
+      "number": "",
+      "positions": ["2B", "CF"],
+      "playerPhone": "",
+      "parentPhone": "",
+      "email": "stembridge233@gmail.com",
+      "active": false
+    }
+  ]
+}
