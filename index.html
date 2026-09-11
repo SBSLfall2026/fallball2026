@@ -792,7 +792,7 @@ function setupListeners() {
           cache[name] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           liveRefresh(name);
           // Seed defaults only after Firestore confirms collection empty
-          if (name === 'fields'    && cache.fields.length    === 0) seedFields();
+          if (name === 'fields') seedFields(); // seeds missing, removes duplicates
           if (name === 'resources' && cache.resources.length === 0) seedResources();
           if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
           if (name === 'coaches') {
@@ -3013,16 +3013,28 @@ const FIELD_SEEDS = [
   { name:'Western Park', address:'', notes:'' },
 ];
 
+const CANONICAL_FIELD_IDS = new Set(['field-swansboro','field-downeast','field-newport','field-havelock','field-pamlico','field-westernpark']);
+const CANONICAL_FIELD_NAMES = new Set(['swansboro','downeast','newport','havelock','pamlico','western park']);
+
 async function seedFields() {
+  // Remove duplicates: entries with canonical names but non-canonical IDs
+  const dupes = cache.fields.filter(f => !CANONICAL_FIELD_IDS.has(f.id) && CANONICAL_FIELD_NAMES.has((f.name||'').toLowerCase()));
+  for (const f of dupes) await fbDelete('fields', f.id);
   // Rename legacy 'Hubert' entry
   const hubert = cache.fields.find(f=>f.name==='Hubert');
   if (hubert) await fbSave('fields', {...hubert, name:'Swansboro'});
-  // Add any seed fields not already present (by name)
-  const existing = new Set(cache.fields.map(f=>f.name.toLowerCase()));
-  for (const f of FIELD_SEEDS) {
-    if (!existing.has(f.name.toLowerCase())) {
-      await fbSave('fields', { id: genId(), ...f, imageData:'' });
-    }
+  // Add any canonical fields not yet present
+  const existing = new Set(cache.fields.filter(f=>CANONICAL_FIELD_IDS.has(f.id)).map(f=>f.id));
+  const SEEDS_WITH_ADDRESSES = [
+    { id:'field-swansboro',   name:'Swansboro',    address:'283 Swansboro Loop Rd, Swansboro, NC 28584', notes:'', imageData:'' },
+    { id:'field-downeast',    name:'Downeast',     address:'299 Hill Rd #101, Smyrna, NC 28579',        notes:'', imageData:'' },
+    { id:'field-newport',     name:'Newport',      address:'274 Chatham St, Newport, NC 28570',         notes:'', imageData:'' },
+    { id:'field-havelock',    name:'Havelock',     address:'1 Recreation Drive, Havelock, NC 28532',    notes:'', imageData:'' },
+    { id:'field-pamlico',     name:'Pamlico',      address:'256 Ireland Rd, Bayboro, NC 28515',         notes:'', imageData:'' },
+    { id:'field-westernpark', name:'Western Park', address:'259 Old NC-58, Cedar Point, NC 28584',      notes:'', imageData:'' },
+  ];
+  for (const f of SEEDS_WITH_ADDRESSES) {
+    if (!existing.has(f.id)) await fbSave('fields', f);
   }
 }
 
