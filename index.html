@@ -650,7 +650,7 @@
 <!-- Team Overlay -->
 <div id="team-overlay">
   <div class="team-card">
-    <div style="font-size:2.8rem;margin-bottom:10px">⚾</div>
+    <div style="font-size:2.8rem;margin-bottom:10px">🥎</div>
     <h2>FallBall Team Manager</h2>
     <p>Enter your team code to join your team, or create a new one.<br>Share the code with your coaches so everyone stays in sync.</p>
     <div class="form-group" style="text-align:left">
@@ -1179,7 +1179,7 @@ function renderRoster() {
   }
   if (!regular.length && !borrowed.length) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
-      <div class="icon">⚾</div><p>No players yet. Tap + to add your first player.</p></div>`;
+      <div class="icon">🥎</div><p>No players yet. Tap + to add your first player.</p></div>`;
     document.getElementById('borrowed-section').innerHTML = '';
     return;
   }
@@ -2119,7 +2119,7 @@ function renderPitcherRoster() {
   }
   if (header) {
     header.innerHTML = `
-      <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">⚾ Pitching Staff — Season Overview</div>
+      <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">🥎 Pitching Staff — Season Overview</div>
       ${cards}
       <div style="font-size:.82rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin:4px 0 12px;border-top:1px solid var(--border);padding-top:14px">📋 Per-Game Log</div>
     `;
@@ -2152,7 +2152,7 @@ function getPitchLog(gameId, playerId) {
 function renderPitchingContent(gameId, playerId) {
   const el = document.getElementById('pitching-content');
   if (!gameId||!playerId) {
-    el.innerHTML=`<div class="empty-state"><div class="icon">⚾</div><p>Select a game and pitcher above.</p></div>`;
+    el.innerHTML=`<div class="empty-state"><div class="icon">🥎</div><p>Select a game and pitcher above.</p></div>`;
     return;
   }
   const log     = getPitchLog(gameId, playerId);
@@ -2305,7 +2305,7 @@ function renderPitchSeasonStats() {
     const ipO=logs.reduce((s,l)=>s+(l.ipOuts||0),0)%3;
     return {p,gp:logs.length,tP,tS,tB:tP-tS,pct:tP>0?((tS/tP)*100).toFixed(1)+'%':'—',ipStr:ipO>0?`${ipF}.${ipO}`:`${ipF}`};
   }).filter(Boolean);
-  if(!rows.length){el.innerHTML=`<div class="empty-state"><div class="icon">⚾</div><p>No pitching data yet.</p></div>`;return;}
+  if(!rows.length){el.innerHTML=`<div class="empty-state"><div class="icon">🥎</div><p>No pitching data yet.</p></div>`;return;}
   el.innerHTML=`<div class="card"><div class="stats-wrap"><table>
     <thead><tr><th>Pitcher</th><th>GP</th><th>IP</th><th>Pitches</th><th>Strikes</th><th>Balls</th><th>Strike %</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(dname(r.p))}</td><td>${r.gp}</td><td>${r.ipStr}</td><td>${r.tP}</td><td>${r.tS}</td><td>${r.tB}</td><td class="calc">${r.pct}</td></tr>`).join('')}</tbody>
@@ -2382,7 +2382,7 @@ document.getElementById('add-note-btn').addEventListener('click',()=>{
 
 // ── RESOURCES ─────────────────────────────────────────────────────────────────
 let resSkillFilter = 'all';
-const SKILL_EMOJI = {Hitting:'🏏',Fielding:'🧤',Baserunning:'🏃',Throwing:'💪',General:'⚾'};
+const SKILL_EMOJI = {Hitting:'🏏',Fielding:'🧤',Baserunning:'🏃',Throwing:'💪',General:'🥎'};
 const SEED = [
   {title:'Fastpitch Hitting Mechanics',         skill:'Hitting',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+hitting+mechanics+tutorial'},
   {title:'Slap Hitting Technique',              skill:'Hitting',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+slap+hitting+technique'},
@@ -2412,7 +2412,7 @@ function renderResGrid() {
   el.innerHTML=filtered.map(r=>{
     const player=r.playerId?players.find(p=>p.id===r.playerId):null;
     return `<div class="res-card">
-      <div class="res-thumb ${esc(r.skill)}">${SKILL_EMOJI[r.skill]||'⚾'}</div>
+      <div class="res-thumb ${esc(r.skill)}">${SKILL_EMOJI[r.skill]||'🥎'}</div>
       <div class="res-body">
         <div class="res-title">${esc(r.title)}</div>
         <div class="res-meta">${esc(r.skill)}${player?' · '+esc(player.name):' · Team'}</div>
@@ -2614,7 +2614,7 @@ function checkTeamAccess() {
     document.getElementById('coach-auth-overlay').style.display = 'none';
     const displayName = approvedCoach?.name || user.displayName || email;
     setCurrentUser(displayName);
-    applySettings(); seedResources(); seedFields(); seedOpponents();
+    applySettings(); seedResources(); seedOpponents();
     renderRoster(); syncGameSelects(); syncPlayerSelects();
     if (isFirstEverUser) {
       fbSave('coaches',{ id:genId(), name: user.displayName||email, email, role:'Head Coach', active:true, createdAt:new Date().toISOString() });
@@ -3682,7 +3682,7 @@ function renderActivityList() {
     added_note:    '📝',
     deleted_note:  '🗑️',
     saved_lineup:  '📋',
-    saved_pitch:   '⚾',
+    saved_pitch:   '🥎',
     added_game:    '📅',
     edited_game:   '📅',
     deleted_game:  '🗑️',
@@ -3839,7 +3839,7 @@ function buildBatterySectionHTML(pos) {
   const pname     = id => { const p=players.find(x=>x.id===id); return p?dname(p):'?'; };
 
   let html = `
-    <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">⚾ P-C Combinations</div>`;
+    <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">🥎 P-C Combinations</div>`;
 
   if (!batteries.length) {
     html += `<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">No combinations logged yet.</div>`;
@@ -3847,7 +3847,7 @@ function buildBatterySectionHTML(pos) {
     html += batteries.map(b=>`
       <div class="battery-card">
         <div class="battery-names">
-          ⚾ ${esc(pname(b.pitcherId))} + 🧤 ${esc(pname(b.catcherId))}
+          🥎 ${esc(pname(b.pitcherId))} + 🧤 ${esc(pname(b.catcherId))}
           <span class="battery-rating bat-${b.rating}">${esc(b.rating)}</span>
           <button class="btn-icon del-battery" data-bid="${esc(b.id)}" style="margin-left:auto;font-size:.8rem">🗑️</button>
         </div>
