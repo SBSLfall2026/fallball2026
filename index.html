@@ -210,7 +210,7 @@
     .add-row select { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: .85rem; background: white; }
 
     /* ── Diamond ── */
-    #diamond-svg { width: 100%; max-width: 260px; display: block; margin: 0 auto; }
+    #diamond-svg { width: 100%; max-width: 300px; display: block; margin: 0 auto; }
     .pos-node { cursor: pointer; }
 
     /* ── Stats ── */
@@ -1674,13 +1674,45 @@ function wireTimeline(onSelect) {
 
 // ── Lineup column helpers ─────────────────────────────────────────────────────
 function buildCompactDefense(lineup, players) {
-  if (!lineup?.entries?.length) return '<div style="color:var(--muted);font-size:.75rem;font-style:italic">Not set</div>';
-  const POSS = ['P','C','1B','2B','3B','SS','LF','CF','RF'];
-  return `<div class="compact-def">${POSS.map(pos=>{
-    const entry = lineup.entries.find(e=>e.fieldingPosition===pos);
-    const p = entry ? players.find(x=>x.id===entry.playerId) : null;
-    return `<div class="compact-def-row"><span class="compact-pos-lbl">${pos}</span><span>${p?esc(dname(p)):'<span style="color:var(--muted)">—</span>'}</span></div>`;
-  }).join('')}</div>`;
+  if (!lineup?.entries?.length) return buildMiniDiamond([], players);
+  return buildMiniDiamond(lineup.entries, players);
+}
+
+function buildMiniDiamond(entries, players) {
+  const DIAMOND_MINI = [
+    { pos:'P',  cx:110, cy:95  },
+    { pos:'C',  cx:110, cy:168 },
+    { pos:'1B', cx:175, cy:125 },
+    { pos:'2B', cx:150, cy:72  },
+    { pos:'SS', cx:70,  cy:72  },
+    { pos:'3B', cx:45,  cy:125 },
+    { pos:'LF', cx:32,  cy:34  },
+    { pos:'CF', cx:110, cy:18  },
+    { pos:'RF', cx:188, cy:34  },
+  ];
+  return `<svg viewBox="0 0 222 192" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:220px;display:block;margin:0 auto">
+    <rect width="222" height="192" fill="#e8f5e8" rx="3"/>
+    <path d="M17,152 Q110,8 205,152" fill="none" stroke="#cddacd" stroke-width="1.2" stroke-dasharray="4,3"/>
+    <polygon points="110,34 175,100 110,166 45,100" fill="#f9f3e0" stroke="#ccc" stroke-width="1.2"/>
+    <line x1="45" y1="100" x2="17" y2="152" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="175" y1="100" x2="205" y2="152" stroke="#ccc" stroke-width="1" stroke-dasharray="3,3"/>
+    <rect x="105" y="160" width="10" height="10" rx="1" fill="white" stroke="#aaa" stroke-width="1.2"/>
+    <rect x="170" y="95"  width="10" height="10" rx="1" fill="white" stroke="#aaa" stroke-width="1.2"/>
+    <rect x="105" y="29"  width="10" height="10" rx="1" fill="white" stroke="#aaa" stroke-width="1.2"/>
+    <rect x="40"  y="95"  width="10" height="10" rx="1" fill="white" stroke="#aaa" stroke-width="1.2"/>
+    <circle cx="110" cy="100" r="7" fill="#f0e8cc" stroke="#bbb" stroke-width="1"/>
+    ${DIAMOND_MINI.map(d=>{
+      const e = entries.find(x=>x.fieldingPosition===d.pos);
+      const p = e ? players.find(x=>x.id===e.playerId) : null;
+      const filled = !!p;
+      const fn = p ? (p.nickname||p.name.split(' ')[0]).slice(0,7) : '';
+      return `<g>
+        <circle cx="${d.cx}" cy="${d.cy}" r="14" fill="${filled?'#2d6a2d':'white'}" stroke="#2d6a2d" stroke-width="1.5"/>
+        <text x="${d.cx}" y="${d.cy-2}" font-size="7.5" font-weight="700" fill="${filled?'white':'#2d6a2d'}" text-anchor="middle" dominant-baseline="middle" font-family="system-ui">${d.pos}</text>
+        <text x="${d.cx}" y="${d.cy+6}" font-size="5.5" fill="${filled?'#c8f0c8':'#aaa'}" text-anchor="middle" font-family="system-ui">${esc(fn)||'—'}</text>
+      </g>`;
+    }).join('')}
+  </svg>`;
 }
 
 function buildReadOnlyOrder(lineup, players, compliance) {
@@ -1858,7 +1890,7 @@ function renderLineupContent(gameId) {
         </div>
       </div>
       <div class="card">
-        <div class="col-title">🧤 Starting Defense</div>
+        <div class="col-title">🧤 Starting Defense — Current Game</div>
         <svg id="diamond-svg" viewBox="0 0 260 225" xmlns="http://www.w3.org/2000/svg">
           <rect width="260" height="225" fill="#e8f5e8" rx="4"/>
           <path d="M 20,180 Q 130,10 240,180" fill="none" stroke="#cddacd" stroke-width="1.5" stroke-dasharray="5,4"/>
@@ -2926,53 +2958,70 @@ async function importAllData(file) {
   reader.onload = async e => {
     try {
       const data = JSON.parse(e.target.result);
-      // Count items to import
-      let total = 0;
-      COLLS.forEach(c => { if (Array.isArray(data[c])) total += data[c].length; });
-      if (!confirm(`Import ${total} records from "${file.name}"?\nThis will overwrite matching data in your team. Continue?`)) return;
 
-      toast('Importing… please wait');
-      isImporting = true;
+      // Verify team code is available
+      if (!teamCode) { toast('No team selected — please rejoin your team first'); return; }
 
-      // Use Firestore batch writes (max 490 per batch) — much more reliable than individual writes
-      let batch  = db.batch();
-      let count  = 0;
-      let errors = 0;
-
-      const flush = async () => {
-        if (count === 0) return;
-        try { await batch.commit(); }
-        catch(err) { errors++; console.error('Batch commit failed:', err); }
-        batch = db.batch();
-        count = 0;
-      };
-
-      for (const coll of COLLS) {
-        if (!Array.isArray(data[coll])) continue;
-        for (const item of data[coll]) {
-          if (!item.id) continue;
+      // Build full write list
+      const writes = [];
+      COLLS.forEach(coll => {
+        if (!Array.isArray(data[coll])) return;
+        data[coll].forEach(item => {
+          if (!item.id) return;
           const { id, ...docData } = item;
-          batch.set(itemDocRef(coll, id), docData);
-          count++;
-          if (count >= 490) await flush();
-        }
+          writes.push({ ref: itemDocRef(coll, id), data: docData, coll, id });
+        });
+      });
+
+      if (!writes.length) { toast('Nothing to import in this file'); return; }
+
+      // Use custom modal instead of confirm() — browser native dialogs can be silently blocked
+      openModal('Confirm Import', `
+        <div style="text-align:center;padding:10px 0">
+          <div style="font-size:2rem;margin-bottom:8px">📂</div>
+          <div style="font-weight:600;margin-bottom:6px">Import ${writes.length} records?</div>
+          <div style="font-size:.82rem;color:var(--muted)">File: ${esc(file.name)}<br>Team: ${esc(teamCode)}<br>This will overwrite matching data.</div>
+        </div>
+      `, `
+        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary"   id="modal-submit">Yes, Import</button>
+      `, async () => {
+        closeModal();
+        isImporting = true;
+      let done = 0, errors = 0;
+      const CHUNK = 50;
+
+      const showProgress = () => {
+        const el = document.getElementById('toast');
+        if (el) { el.innerHTML = `<span>Importing… ${done}/${writes.length}</span>`; el.classList.add('show'); }
+      };
+      showProgress();
+
+      // Write in chunks of 50 so we can see progress and handle errors per chunk
+      for (let i = 0; i < writes.length; i += CHUNK) {
+        const chunk = writes.slice(i, i + CHUNK);
+        const results = await Promise.allSettled(chunk.map(w => w.ref.set(w.data)));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') { done++; }
+          else { errors++; console.error(`Import failed: ${chunk[idx].coll}/${chunk[idx].id}`, r.reason); }
+        });
+        showProgress();
       }
-      await flush(); // commit final batch
 
       if (data.settings) await fbSaveSettings(data.settings);
       isImporting = false;
 
-      if (errors > 0) {
-        toast(`Import finished with ${errors} error(s) — check console`);
-        setTimeout(()=>location.reload(), 2000);
-      } else {
-        toast('Import complete ✔ — reloading…');
-        setTimeout(()=>location.reload(), 1200);
-      }
+      const msg = errors > 0
+        ? `Import done: ${done} succeeded, ${errors} failed — open browser console for details`
+        : `Import complete ✔ (${done} records) — reloading…`;
+      toast(msg);
+      console.log(`Import result: ${done} OK, ${errors} errors, team=${teamCode}`);
+      setTimeout(()=>location.reload(), errors > 0 ? 4000 : 1500);
+      }); // end openModal submit handler
     } catch(ex) {
       isImporting = false;
-      toast('Could not read backup file — check the file format');
-      console.error('Import error:', ex);
+      toast('Could not read file — check format');
+      console.error('Import parse error:', ex);
     }
   };
   reader.readAsText(file);
