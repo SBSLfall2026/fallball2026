@@ -685,7 +685,10 @@
       <button class="btn btn-danger btn-sm" id="clear-activity-btn" style="display:none">Clear Log</button>
     </div>
     <div id="activity-pin-gate"></div>
-    <div id="activity-content" style="display:none"></div>
+    <div id="activity-content" style="display:none">
+      <!-- Changes (24h) section always at top -->
+      <div id="changes-section" style="margin-bottom:20px"></div>
+    </div>
   </section>
 
 </main>
@@ -838,10 +841,11 @@ auth.getRedirectResult().catch(e => { if(e.code) console.warn('Redirect:', e.cod
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
-const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries','chat'];
+const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries','chat','history'];
+const NO_HISTORY = new Set(['history','activity','chat']); // skip logging for these
 
 // ── Cache (mirrors Firestore, updated by listeners) ───────────────────────────
-const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], chat:[], settings:{} };
+const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], chat:[], history:[], settings:{} };
 
 // ── Firestore helpers (compat API) ────────────────────────────────────────────
 const teamDocRef  = ()         => db.collection('teams').doc(teamCode);
@@ -849,14 +853,74 @@ const itemDocRef  = (coll, id) => db.collection('teams').doc(teamCode).collectio
 
 async function fbSave(collName, item) {
   const { id, ...data } = item;
+  // Log change history (don't log for noisy collections)
+  if (!NO_HISTORY.has(collName)) {
+    const prev = (cache[collName]||[]).find(x=>x.id===id);
+    logChange(collName, id, prev?'update':'create', prev||null, item);
+  }
   cache[collName] = [...(cache[collName]||[]).filter(x=>x.id!==id), item];
   try { await itemDocRef(collName, id).set(data); }
   catch(e) { toast('Sync error — check connection'); console.error(e); }
 }
 async function fbDelete(collName, id) {
+  if (!NO_HISTORY.has(collName)) {
+    const prev = (cache[collName]||[]).find(x=>x.id===id);
+    if (prev) logChange(collName, id, 'delete', prev, null);
+  }
   cache[collName] = (cache[collName]||[]).filter(x=>x.id!==id);
   try { await itemDocRef(collName, id).delete(); }
   catch(e) { toast('Sync error — check connection'); console.error(e); }
+}
+
+// ── Change history ────────────────────────────────────────────────────────────
+function changeDescription(collName, action, prev, next) {
+  const item = next||prev;
+  const players = cache.players;
+  switch(collName) {
+    case 'players':   return `${action==='delete'?'Deleted':'Changed'} player: ${item?.name||'?'}`;
+    case 'notes':     { const p=players.find(x=>x.id===item?.playerId); return `${action==='delete'?'Deleted':'Added'} note for ${p?p.name:'player'}`; }
+    case 'games':     return `${action==='delete'?'Deleted':'Changed'} game: ${item?.date||''} vs ${item?.opponent||'?'}`;
+    case 'lineups':   { const g=cache.games.find(x=>x.id===item?.gameId); return `Updated lineup for ${g?'vs '+g.opponent:item?.gameId||'?'}`; }
+    case 'stats':     { const p=players.find(x=>x.id===item?.playerId); const g=cache.games.find(x=>x.id===item?.gameId); return `Updated stats: ${p?p.name:'player'} in ${g?'vs '+g.opponent:'game'}`; }
+    case 'coaches':   return `${action==='delete'?'Removed':'Changed'} coach: ${item?.name||'?'}`;
+    case 'opponents': return `${action==='delete'?'Removed':'Changed'} opponent: ${item?.name||'?'}`;
+    case 'fields':    return `${action==='delete'?'Removed':'Changed'} field: ${item?.name||'?'}`;
+    case 'resources': return `${action==='delete'?'Removed':'Changed'} resource: ${item?.title||'?'}`;
+    case 'batteries': { const p1=players.find(x=>x.id===item?.pitcherId); const p2=players.find(x=>x.id===item?.catcherId); return `${action==='delete'?'Removed':'Changed'} P-C combo: ${p1?p1.name:'?'} + ${p2?p2.name:'?'}`; }
+    default:          return `${action} ${collName}`;
+  }
+}
+
+function logChange(collName, docId, action, previousData, newData) {
+  if (!currentUser) return; // only log when someone is signed in
+  const expires = new Date(Date.now()+24*60*60*1000).toISOString();
+  const entry = {
+    id: genId(), collection: collName, documentId: docId, action,
+    previousData: previousData ? JSON.parse(JSON.stringify(previousData)) : null,
+    newData:      newData      ? JSON.parse(JSON.stringify(newData))      : null,
+    changedBy: currentUser, changedByEmail: auth.currentUser?.email||'',
+    timestamp: new Date().toISOString(), expiresAt: expires,
+    description: changeDescription(collName, action, previousData, newData),
+  };
+  // Write directly to Firestore (bypass fbSave to avoid recursion)
+  itemDocRef('history', entry.id).set(entry).catch(()=>{});
+}
+
+async function revertChange(entry) {
+  const { collection, documentId, action, previousData, newData } = entry;
+  if (action==='create') {
+    // Undo a create → delete it
+    await itemDocRef(collection, documentId).delete();
+    cache[collection] = (cache[collection]||[]).filter(x=>x.id!==documentId);
+  } else if (action==='update'||action==='delete') {
+    // Undo update or delete → restore previous data
+    const { id, ...data } = previousData;
+    await itemDocRef(collection, id).set(data);
+    cache[collection] = [...(cache[collection]||[]).filter(x=>x.id!==id), previousData];
+  }
+  // Mark history entry as reverted
+  itemDocRef('history', entry.id).set({...entry, reverted:true}).catch(()=>{});
+  toast(`Reverted: ${esc(entry.description)} ✔`);
 }
 async function fbSaveSettings(settings) {
   cache.settings = { ...cache.settings, ...settings };
@@ -928,6 +992,12 @@ function liveRefresh(collName) {
   // Live badge updates
   if (collName === 'notes') updateNotesBadge();
   if (collName === 'chat')  { updateChatBadge(); if (chatOpen) renderChatMessages(); }
+  // Clean up expired history entries, refresh activity if open
+  if (collName === 'history') {
+    const now = Date.now();
+    cache.history.filter(h=>new Date(h.expiresAt).getTime()<now).forEach(h=>itemDocRef('history',h.id).delete().catch(()=>{}));
+    if (document.getElementById('tab-activity')?.classList.contains('active')) renderActivityList();
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -4111,7 +4181,47 @@ function renderActivityTab() {
   });
 }
 
+function renderChangesSection() {
+  const el = document.getElementById('changes-section'); if (!el) return;
+  const now  = Date.now();
+  const entries = [...cache.history]
+    .filter(h=>new Date(h.expiresAt).getTime()>now&&!h.reverted)
+    .sort((a,b)=>b.timestamp.localeCompare(a.timestamp));
+
+  if (!entries.length) { el.innerHTML=''; return; }
+
+  const ACTION_COLOR = { delete:'#fee2e2', update:'#fef9c3', create:'#dcfce7' };
+  const ACTION_LABEL = { delete:'Deleted', update:'Changed', create:'Added' };
+
+  el.innerHTML = `
+    <div style="font-size:.85rem;font-weight:700;color:var(--green-dark);margin-bottom:8px">
+      🕐 Changes in the last 24 hours — click Revert to undo any specific change
+    </div>
+    <div class="card" style="padding:10px 14px">
+      ${entries.map(h=>`
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="background:${ACTION_COLOR[h.action]||'#f5f5f5'};border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700;flex-shrink:0;margin-top:2px">${ACTION_LABEL[h.action]||h.action}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.82rem;font-weight:500">${esc(h.description)}</div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:1px">${esc(h.changedBy)} · ${new Date(h.timestamp).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm revert-btn" data-hid="${esc(h.id)}" style="font-size:.72rem;flex-shrink:0">↩ Revert</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  el.querySelectorAll('.revert-btn').forEach(btn=>btn.addEventListener('click',async()=>{
+    const entry = cache.history.find(h=>h.id===btn.dataset.hid); if(!entry) return;
+    if (!confirm(`Revert: "${entry.description}"?\n\nThis will restore the previous state of this item for everyone.`)) return;
+    btn.textContent='Reverting…'; btn.disabled=true;
+    await revertChange(entry);
+    renderChangesSection();
+  }));
+}
+
 function renderActivityList() {
+  renderChangesSection();
   const el = document.getElementById('activity-content'); if (!el) return;
   const entries = [...cache.activity]
     .sort((a,b) => b.timestamp.localeCompare(a.timestamp))
