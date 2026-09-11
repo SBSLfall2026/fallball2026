@@ -155,6 +155,15 @@
     .pos-note-empty { font-size:.78rem; color:var(--muted); font-style:italic; margin-top:4px; }
     .pos-panel-overlay { position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:149; display:none; }
     .pos-panel-overlay.open { display:block; }
+    .badge-primary-a { background:#fef3c7; color:#92400e; border:1px solid #f59e0b; }
+    .badge-primary-b { background:#ede9fe; color:#5b21b6; border:1px solid #a78bfa; }
+    .badge-secondary-pos { background:var(--green-light); color:var(--green-dark); }
+    .battery-card { border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px; background:var(--green-light); }
+    .battery-names { font-weight:700; font-size:.9rem; display:flex; align-items:center; gap:8px; }
+    .battery-rating { font-size:.75rem; font-weight:700; padding:2px 8px; border-radius:20px; }
+    .bat-Strong     { background:#dcfce7; color:#166534; }
+    .bat-Good       { background:#fef9c3; color:#854d0e; }
+    .bat-Developing { background:#fee2e2; color:#991b1b; }
     .player-card.callup   { border-left: 3px solid #7c3aed; }
     .player-card.combined { border-left: 3px solid #0284c7; }
     .badge-callup   { background: #ede9fe; color: #5b21b6; }
@@ -747,10 +756,10 @@ auth.getRedirectResult().catch(e => { if(e.code) console.warn('Redirect:', e.cod
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
-const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches'];
+const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries'];
 
 // ── Cache (mirrors Firestore, updated by listeners) ───────────────────────────
-const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], settings:{} };
+const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], settings:{} };
 
 // ── Firestore helpers (compat API) ────────────────────────────────────────────
 const teamDocRef  = ()         => db.collection('teams').doc(teamCode);
@@ -3722,6 +3731,18 @@ const _origFbSave = fbSave;
 // ── POSITION PANEL ───────────────────────────────────────────────────────────
 const FIELDING_POSITIONS = ['P','C','1B','2B','3B','SS','LF','CF','RF'];
 
+function posRole(p, pos) {
+  if (p.primaryA === pos) return 'A';
+  if (p.primaryB === pos) return 'B';
+  return 'S';
+}
+function posRoleBadge(role) {
+  if (role==='A') return `<span class="badge badge-primary-a">⭐ Primary A</span>`;
+  if (role==='B') return `<span class="badge badge-primary-b">★ Primary B</span>`;
+  return `<span class="badge badge-secondary-pos">Secondary</span>`;
+}
+function posRoleSort(role) { return role==='A'?0:role==='B'?1:2; }
+
 function buildPosBar() {
   const bar = document.getElementById('pos-bar');
   if (!bar) return;
@@ -3740,19 +3761,24 @@ function buildPosBar() {
   });
 }
 
+function wirePosPanel(pos) {
+  const body = document.getElementById('pos-panel-body');
+  body.querySelectorAll('.edit-pos-note').forEach(btn=>btn.addEventListener('click',()=>openPosNoteModal(btn.dataset.pid,btn.dataset.pos)));
+  body.querySelectorAll('.del-battery').forEach(btn=>btn.addEventListener('click',()=>{
+    fbDelete('batteries',btn.dataset.bid);
+    body.innerHTML=buildPosPanelHTML(pos); wirePosPanel(pos); toast('Removed');
+  }));
+  document.getElementById('add-battery-btn')?.addEventListener('click', openAddBatteryModal);
+}
+
 function openPosPanel(pos) {
   const panel   = document.getElementById('pos-panel');
   const overlay = document.getElementById('pos-overlay');
-  const title   = document.getElementById('pos-panel-title');
-  const body    = document.getElementById('pos-panel-body');
-  title.textContent = posLabel(pos);
-  body.innerHTML = buildPosPanelHTML(pos);
+  document.getElementById('pos-panel-title').textContent = posLabel(pos);
+  document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(pos);
   panel.classList.add('open');
   overlay.classList.add('open');
-  // Wire edit-note buttons
-  body.querySelectorAll('.edit-pos-note').forEach(btn => {
-    btn.addEventListener('click', () => openPosNoteModal(btn.dataset.pid, btn.dataset.pos));
-  });
+  wirePosPanel(pos);
 }
 
 function closePosPanel() {
@@ -3769,79 +3795,169 @@ function posLabel(pos) { return `${pos} — ${POS_FULL[pos]||pos}`; }
 
 function buildPosPanelHTML(pos) {
   const players = cache.players.filter(p=>p.active!==false&&(p.positions||[]).includes(pos));
-  if (!players.length) return `<div class="empty-state" style="padding:30px 20px"><div class="icon">🧤</div><p>No active players assigned to ${pos}.</p></div>`;
+  let html = '';
 
-  // Sort: main position first, then secondary
-  const sorted = [...players].sort((a,b) => {
-    const aMain = a.mainPosition===pos ? 0 : 1;
-    const bMain = b.mainPosition===pos ? 0 : 1;
-    return aMain - bMain || a.name.localeCompare(b.name);
-  });
+  // Battery section for P and C
+  if (pos==='P'||pos==='C') {
+    html += buildBatterySectionHTML(pos);
+    html += `<div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 8px">${pos==='P'?'Pitchers':'Catchers'}</div>`;
+  }
 
-  return sorted.map(p => {
-    const isMain = p.mainPosition === pos;
-    const note   = (p.positionNotes||{})[pos] || '';
+  if (!players.length) {
+    html += `<div class="empty-state" style="padding:20px 0"><div class="icon">🧤</div><p>No active players assigned to ${pos}.</p></div>`;
+    return html;
+  }
+
+  const sorted = [...players].sort((a,b)=>posRoleSort(posRole(a,pos))-posRoleSort(posRole(b,pos))||a.name.localeCompare(b.name));
+
+  html += sorted.map(p => {
+    const role    = posRole(p, pos);
+    const note    = (p.positionNotes||{})[pos]||'';
     const injured = p.injured ? `<span class="badge badge-injured" style="font-size:.65rem">INJURED</span>` : '';
+    const cardCls = role==='A'?'main-pos':role==='B'?'sec-pos':'';
     return `
-      <div class="pos-player-card ${isMain?'main-pos':'sec-pos'}">
+      <div class="pos-player-card ${cardCls}">
         <div class="ppn">
-          ${esc(dname(p))}${p.number?' <span style="color:var(--muted);font-size:.8rem">#'+p.number+'</span>':''}
+          ${esc(dname(p))}${p.number?` <span style="color:var(--muted);font-size:.8rem">#${p.number}</span>`:''}
           ${injured}
-          <span class="badge" style="background:${isMain?'var(--gold-light)':'var(--green-light)'};color:${isMain?'#78350f':'var(--green-dark)'};margin-left:auto">${isMain?'⭐ Main':'Secondary'}</span>
+          <span style="margin-left:auto">${posRoleBadge(role)}</span>
         </div>
-        ${note
-          ? `<div class="pos-note-text">${esc(note)}</div>`
-          : `<div class="pos-note-empty">No notes yet — tap Edit to add observations.</div>`
-        }
+        ${note ? `<div class="pos-note-text">${esc(note)}</div>` : `<div class="pos-note-empty">No notes — tap to add observations.</div>`}
         <div style="margin-top:8px">
-          <button class="btn btn-secondary btn-sm edit-pos-note" data-pid="${esc(p.id)}" data-pos="${esc(pos)}" style="font-size:.75rem">
-            ${note?'Edit Note':'+ Add Note'}
-          </button>
+          <button class="btn btn-secondary btn-sm edit-pos-note" data-pid="${esc(p.id)}" data-pos="${esc(pos)}" style="font-size:.75rem">${note?'Edit Note':'+ Add Note'}</button>
         </div>
       </div>`;
   }).join('');
+
+  return html;
+}
+
+// ── Pitcher-Catcher Batteries ─────────────────────────────────────────────────
+function buildBatterySectionHTML(pos) {
+  const batteries = cache.batteries;
+  const players   = cache.players;
+  const pname     = id => { const p=players.find(x=>x.id===id); return p?dname(p):'?'; };
+
+  let html = `
+    <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">⚾ P-C Combinations</div>`;
+
+  if (!batteries.length) {
+    html += `<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">No combinations logged yet.</div>`;
+  } else {
+    html += batteries.map(b=>`
+      <div class="battery-card">
+        <div class="battery-names">
+          ⚾ ${esc(pname(b.pitcherId))} + 🧤 ${esc(pname(b.catcherId))}
+          <span class="battery-rating bat-${b.rating}">${esc(b.rating)}</span>
+          <button class="btn-icon del-battery" data-bid="${esc(b.id)}" style="margin-left:auto;font-size:.8rem">🗑️</button>
+        </div>
+        ${b.notes?`<div style="font-size:.78rem;color:var(--text);margin-top:4px">${esc(b.notes)}</div>`:''}
+      </div>`).join('');
+  }
+
+  html += `<button class="btn btn-secondary btn-sm" id="add-battery-btn" style="margin-bottom:4px">+ Add Combination</button>`;
+  return html;
+}
+
+function openAddBatteryModal() {
+  const pitchers = cache.players.filter(p=>p.active!==false&&(p.positions||[]).includes('P'));
+  const catchers = cache.players.filter(p=>p.active!==false&&(p.positions||[]).includes('C'));
+  openModal('Add P-C Combination',`
+    <div class="form-group"><label>Pitcher *</label>
+      <select id="bat-p"><option value="">Select pitcher</option>
+        ${pitchers.map(p=>`<option value="${esc(p.id)}">${esc(dname(p))}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>Catcher *</label>
+      <select id="bat-c"><option value="">Select catcher</option>
+        ${catchers.map(p=>`<option value="${esc(p.id)}">${esc(dname(p))}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group"><label>How well do they work together?</label>
+      <select id="bat-r">
+        <option value="Strong">⭐ Strong — natural chemistry, go-to combo</option>
+        <option value="Good"  >✅ Good — reliable, solid communication</option>
+        <option value="Developing">🔄 Developing — working on it</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Notes (communication style, strengths, what to work on)</label>
+      <textarea id="bat-n" style="min-height:80px" placeholder="e.g. Great at setting up off-speed, needs work on pitch framing..."></textarea>
+    </div>
+  `,`
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-primary"   id="modal-submit">Save</button>
+  `,()=>{
+    const pid = document.getElementById('bat-p').value;
+    const cid = document.getElementById('bat-c').value;
+    if (!pid||!cid) { toast('Select both pitcher and catcher'); return; }
+    fbSave('batteries',{ id:genId(), pitcherId:pid, catcherId:cid, rating:document.getElementById('bat-r').value, notes:document.getElementById('bat-n').value.trim() });
+    closeModal();
+    const activePos = document.querySelector('.pos-btn.active')?.textContent;
+    if (activePos) {
+      document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(activePos);
+      wirePosPanel(activePos);
+    }
+    toast('Combination saved ✔');
+  });
 }
 
 function openPosNoteModal(playerId, pos) {
   const p    = cache.players.find(x=>x.id===playerId); if(!p) return;
   const note = (p.positionNotes||{})[pos]||'';
-  const isMain = p.mainPosition === pos;
-  openModal(`${esc(pos)} — ${esc(p.name)}`,`
+  const role = posRole(p, pos); // 'A', 'B', or 'S'
+  openModal(`${esc(pos)} — ${esc(dname(p))}`,`
     <div class="form-group">
-      <label>Position note — observations, concerns, development tips</label>
-      <textarea id="pn-text" style="min-height:120px">${esc(note)}</textarea>
+      <label>Role at this position</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:2px solid ${role==='A'?'#f59e0b':'var(--border)'};border-radius:20px;cursor:pointer;background:${role==='A'?'#fef3c7':'white'}">
+          <input type="radio" name="pos-role" value="A" ${role==='A'?'checked':''} style="display:none"> ⭐ Primary A
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:2px solid ${role==='B'?'#a78bfa':'var(--border)'};border-radius:20px;cursor:pointer;background:${role==='B'?'#ede9fe':'white'}">
+          <input type="radio" name="pos-role" value="B" ${role==='B'?'checked':''} style="display:none"> ★ Primary B
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;border:2px solid ${role==='S'?'var(--green)':'var(--border)'};border-radius:20px;cursor:pointer;background:${role==='S'?'var(--green-light)':'white'}">
+          <input type="radio" name="pos-role" value="S" ${role==='S'?'checked':''} style="display:none"> Secondary
+        </label>
+      </div>
     </div>
-    <div style="margin-top:4px">
-      <label class="toggle" style="font-size:.82rem">
-        <input type="checkbox" id="pn-main" ${isMain?'checked':''}> ⭐ This is their <strong>main position</strong>
-      </label>
+    <div class="form-group">
+      <label>Notes — observations, concerns, development tips</label>
+      <textarea id="pn-text" style="min-height:110px" placeholder="e.g. Strong footwork, needs work on backhand throws...">${esc(note)}</textarea>
     </div>
   `,`
-    <button class="btn btn-danger btn-sm" id="pn-clear" style="margin-right:auto">Clear Note</button>
+    <button class="btn btn-danger btn-sm" id="pn-clear" style="margin-right:auto">Clear</button>
     <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
     <button class="btn btn-primary"   id="modal-submit">Save</button>
   `,()=>{
     const newNote = document.getElementById('pn-text').value.trim();
-    const setMain = document.getElementById('pn-main').checked;
+    const newRole = document.querySelector('input[name="pos-role"]:checked')?.value||'S';
     const updated = {
       ...p,
-      mainPosition: setMain ? pos : (p.mainPosition===pos ? '' : p.mainPosition),
+      primaryA: newRole==='A' ? pos : (p.primaryA===pos ? '' : p.primaryA),
+      primaryB: newRole==='B' ? pos : (p.primaryB===pos ? '' : p.primaryB),
       positionNotes: { ...(p.positionNotes||{}), [pos]: newNote },
     };
     fbSave('players', updated);
     closeModal();
-    // Refresh panel
     document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(pos);
-    document.getElementById('pos-panel-body').querySelectorAll('.edit-pos-note').forEach(btn=>{
-      btn.addEventListener('click',()=>openPosNoteModal(btn.dataset.pid, btn.dataset.pos));
-    });
-    toast('Position note saved ✔');
+    wirePosPanel(pos);
+    toast('Saved ✔');
   });
+  // Style radio buttons on change
   setTimeout(()=>{
+    document.querySelectorAll('input[name="pos-role"]').forEach(r=>r.addEventListener('change',()=>{
+      document.querySelectorAll('input[name="pos-role"]').forEach(x=>{
+        const lbl = x.closest('label');
+        const colors = {A:['#f59e0b','#fef3c7'],B:['#a78bfa','#ede9fe'],S:['var(--green)','var(--green-light)']};
+        const [bc,bg] = colors[x.value]||['var(--border)','white'];
+        lbl.style.borderColor = x.checked?bc:'var(--border)';
+        lbl.style.background  = x.checked?bg:'white';
+      });
+    }));
     document.getElementById('pn-clear')?.addEventListener('click',()=>{
-      const updated = { ...p, positionNotes: { ...(p.positionNotes||{}), [pos]:'' } };
-      fbSave('players', updated); closeModal(); toast('Note cleared');
-      document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(pos);
+      fbSave('players',{...p,positionNotes:{...(p.positionNotes||{}),[pos]:''}});
+      closeModal(); toast('Cleared');
+      document.getElementById('pos-panel-body').innerHTML=buildPosPanelHTML(pos); wirePosPanel(pos);
     });
   },0);
 }
