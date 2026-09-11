@@ -841,11 +841,11 @@ auth.getRedirectResult().catch(e => { if(e.code) console.warn('Redirect:', e.cod
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
-const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries','chat','history'];
+const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries','chat','history','scouting'];
 const NO_HISTORY = new Set(['history','activity','chat']); // skip logging for these
 
 // ── Cache (mirrors Firestore, updated by listeners) ───────────────────────────
-const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], chat:[], history:[], settings:{} };
+const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], chat:[], history:[], scouting:[], settings:{} };
 
 // ── Firestore helpers (compat API) ────────────────────────────────────────────
 const teamDocRef  = ()         => db.collection('teams').doc(teamCode);
@@ -1296,8 +1296,9 @@ function playerCardHTML(p) {
   return `
     <div class="card player-card${p.active===false?' inactive':''}${p.injured?' injured':''}${typeCls}" data-id="${esc(p.id)}">
       <div class="p-actions">
-        <button class="btn-icon" data-action="edit" data-id="${esc(p.id)}" title="Edit">✏️</button>
-        <button class="btn-icon" data-action="del"  data-id="${esc(p.id)}" title="Delete">🗑️</button>
+        <button class="btn-icon" data-action="stats" data-id="${esc(p.id)}" title="View stats">📊</button>
+        <button class="btn-icon" data-action="edit"  data-id="${esc(p.id)}" title="Edit">✏️</button>
+        <button class="btn-icon" data-action="del"   data-id="${esc(p.id)}" title="Delete">🗑️</button>
       </div>
       <div class="p-number${p.number&&dupNumbers.has(String(p.number))?' dup-num':''}">#${esc(p.number||'—')}${p.number&&dupNumbers.has(String(p.number))?` <span class="badge badge-dupnum" title="Duplicate jersey number — must resolve before spring season">⚠️ Dup #</span>`:''}</div>
       <div class="p-name">${esc(p.name)}${p.injured?` <span class="badge badge-injured">INJURED</span>`:''}</div>
@@ -1320,6 +1321,7 @@ function playerCardHTML(p) {
 }
 
 function wirePlayerCard(grid) {
+  grid.querySelectorAll('[data-action="stats"]').forEach(b=>b.addEventListener('click',()=>openPlayerStatsModal(b.dataset.id)));
   grid.querySelectorAll('[data-action="edit"]').forEach(b=>b.addEventListener('click',()=>openPlayerModal(b.dataset.id)));
   grid.querySelectorAll('[data-action="del"]').forEach(b=>b.addEventListener('click',()=>delPlayer(b.dataset.id)));
   grid.querySelectorAll('.active-chk').forEach(cb=>cb.addEventListener('change',()=>{
@@ -4022,6 +4024,7 @@ function renderOppGrid() {
     return `
       <div class="card" style="position:relative">
         <div style="position:absolute;top:10px;right:10px;display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm scout-opp" data-oid="${esc(o.id)}" style="font-size:.7rem">🔍 Scout</button>
           <button class="btn-icon edit-opp" data-oid="${esc(o.id)}" title="Edit">✏️</button>
           <button class="btn-icon del-opp"  data-oid="${esc(o.id)}" title="Delete">🗑️</button>
         </div>
@@ -4034,6 +4037,7 @@ function renderOppGrid() {
       </div>`;
   }).join('');
 
+  el.querySelectorAll('.scout-opp').forEach(b=>b.addEventListener('click',()=>openOpponentScoutingModal(b.dataset.oid)));
   el.querySelectorAll('.edit-opp').forEach(b=>b.addEventListener('click',()=>openOppModal(b.dataset.oid)));
   el.querySelectorAll('.del-opp').forEach(b=>b.addEventListener('click',()=>{
     const o=cache.opponents.find(x=>x.id===b.dataset.oid); if(!o) return;
@@ -4615,6 +4619,215 @@ document.getElementById('chat-send').addEventListener('click', sendChatMessage);
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
 });
+
+// ── PLAYER STATS MODAL ───────────────────────────────────────────────────────
+function openPlayerStatsModal(playerId) {
+  const p = cache.players.find(x=>x.id===playerId); if(!p) return;
+  const ps    = cache.stats.filter(s=>s.playerId===playerId);
+  const notes = cache.notes.filter(n=>n.playerId===playerId);
+  const games = cache.games;
+
+  // Season totals
+  const ab=sumf(ps,'ab'),b1=sumf(ps,'1b'),b2=sumf(ps,'2b'),b3=sumf(ps,'3b'),hr=sumf(ps,'hr');
+  const h=b1+b2+b3+hr, bb=sumf(ps,'bb'), rbi=sumf(ps,'rbi'), r=sumf(ps,'r'),
+        k=sumf(ps,'k'), kl=sumf(ps,'kl'), sb=sumf(ps,'sb'), e=sumf(ps,'e');
+  const avg = ab>0?(h/ab).toFixed(3):'—';
+  const obp = (ab+bb)>0?((h+bb)/(ab+bb)).toFixed(3):'—';
+  const slg = ab>0?((b1+2*b2+3*b3+4*hr)/ab).toFixed(3):'—';
+
+  // Per-game rows sorted by date
+  const sorted = [...ps].sort((a,b)=>{
+    const ga=games.find(g=>g.id===a.gameId), gb=games.find(g=>g.id===b.gameId);
+    return (ga?.date||'').localeCompare(gb?.date||'');
+  });
+  const gameRows = sorted.map(s=>{
+    const g = games.find(x=>x.id===s.gameId);
+    const sh=(parseInt(s['1b'])||0)+(parseInt(s['2b'])||0)+(parseInt(s['3b'])||0)+(parseInt(s.hr)||0);
+    const savg=(parseInt(s.ab)||0)>0?(sh/(parseInt(s.ab)||0)).toFixed(3):'—';
+    return `<tr>
+      <td style="white-space:nowrap">${g?g.date:''}</td>
+      <td style="font-weight:500">${g?esc(g.opponent):'?'}</td>
+      <td>${s.ab||0}</td><td>${sh||0}</td><td>${s['2b']||0}</td><td>${s['3b']||0}</td><td>${s.hr||0}</td>
+      <td>${s.rbi||0}</td><td>${s.r||0}</td><td>${s.bb||0}</td><td>${s.k||0}</td><td>${s.kl||0}</td><td>${s.sb||0}</td>
+      <td class="calc">${savg}</td>
+    </tr>`;
+  }).join('');
+
+  const statPill = (val,lbl,cls='')=>`<div style="text-align:center;min-width:48px">
+    <div style="font-size:1.5rem;font-weight:800;color:${cls||'var(--green)'}">${val}</div>
+    <div style="font-size:.68rem;color:var(--muted)">${lbl}</div>
+  </div>`;
+
+  openModal(`📊 ${esc(dname(p))}`, `
+    <div style="background:var(--green-light);border-radius:var(--radius);padding:12px;margin-bottom:14px">
+      <div style="font-size:.8rem;color:var(--muted);margin-bottom:8px">#${p.number||'—'} · ${(p.positions||[]).join(' / ')} · ${ps.length} GP</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-around">
+        ${statPill(avg,'AVG',ab>0&&(h/ab)>=0.300?'#166534':ab>0&&(h/ab)>=0.200?'#92400e':'#991b1b')}
+        ${statPill(obp,'OBP','var(--blue)')}
+        ${statPill(slg,'SLG','var(--text)')}
+        ${statPill(hr,'HR','var(--red)')}
+        ${statPill(rbi,'RBI','')}
+        ${statPill(sb,'SB','')}
+        ${statPill(k+kl,'K total','#991b1b')}
+      </div>
+    </div>
+
+    <details open>
+      <summary style="cursor:pointer;font-size:.8rem;font-weight:700;color:var(--green-dark);margin-bottom:8px;user-select:none">Per-Game Breakdown</summary>
+      ${ps.length ? `<div class="stats-wrap">
+        <table style="font-size:.75rem">
+          <thead><tr>
+            <th style="text-align:left">Date</th><th style="text-align:left">vs</th>
+            <th>AB</th><th>H</th><th>2B</th><th>3B</th><th>HR</th>
+            <th>RBI</th><th>R</th><th>BB</th><th>K</th><th><span class="bk">K</span></th><th>SB</th>
+            <th class="calc">AVG</th>
+          </tr></thead>
+          <tbody>${gameRows}</tbody>
+        </table>
+      </div>` : '<div style="color:var(--muted);font-size:.82rem;padding:8px 0">No game stats entered yet.</div>'}
+    </details>
+
+    ${notes.length ? `
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:.8rem;font-weight:700;color:var(--green-dark);user-select:none">Coach Notes (${notes.length})</summary>
+      <div style="margin-top:8px">
+        ${notes.slice(0,5).map(n=>`<div style="padding:6px 10px 6px 12px;border-left:3px solid ${n.tag==='improvement'?'var(--red)':n.tag==='positive'?'#22c55e':'var(--blue)'};background:white;margin-bottom:5px;border-radius:0 4px 4px 0">
+          <span class="badge badge-${esc(n.tag)}" style="font-size:.65rem;margin-bottom:3px;display:inline-block">${esc(n.tag)}</span>
+          <div style="font-size:.78rem">${esc(n.text)}</div>
+          <div style="font-size:.68rem;color:var(--muted)">${esc(n.date)}</div>
+        </div>`).join('')}
+        ${notes.length>5?`<div style="font-size:.73rem;color:var(--muted)">(+${notes.length-5} more in Notes tab)</div>`:''}
+      </div>
+    </details>` : ''}
+  `, `<button class="btn btn-secondary" id="modal-cancel">Close</button>`);
+}
+
+// ── OPPONENT SCOUTING ─────────────────────────────────────────────────────────
+// Scouting entries: { id, opponentId, playerName, position, bats, notes, stats:{ab,h,2b,3b,hr,rbi,r,bb,k}, importedAt }
+
+function openOpponentScoutingModal(opponentId) {
+  const opp     = cache.opponents.find(x=>x.id===opponentId); if(!opp) return;
+  const entries = cache.scouting.filter(s=>s.opponentId===opponentId)
+                    .sort((a,b)=>a.playerName.localeCompare(b.playerName));
+  // Past games vs this opponent
+  const vsGames = cache.games.filter(g=>g.opponentId===opponentId||(g.opponent||'').toLowerCase()===opp.name.toLowerCase());
+
+  const rows = entries.map(s=>`
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:.875rem">${esc(s.playerName)} ${s.position?`<span class="badge badge-pos">${esc(s.position)}</span>`:''}</div>
+        ${s.stats?.ab ? `<div style="font-size:.75rem;color:var(--muted)">AVG ${s.stats.ab>0?((s.stats.h||0)/s.stats.ab).toFixed(3):'—'} · HR ${s.stats.hr||0} · RBI ${s.stats.rbi||0}</div>` : ''}
+        ${s.notes?`<div style="font-size:.78rem;margin-top:3px">${esc(s.notes)}</div>`:''}
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn-icon edit-scout" data-sid="${esc(s.id)}" title="Edit">✏️</button>
+        <button class="btn-icon del-scout"  data-sid="${esc(s.id)}" title="Delete">🗑️</button>
+      </div>
+    </div>`).join('');
+
+  const record = vsGames.filter(g=>g.result).map(g=>`${g.date} ${g.result} ${g.ourScore}-${g.theirScore}`).join(' · ');
+
+  openModal(`🔍 Scouting — ${esc(opp.name)}`, `
+    ${vsGames.length?`<div style="background:var(--green-light);border-radius:var(--radius);padding:8px 12px;font-size:.78rem;margin-bottom:12px"><strong>Our record vs ${esc(opp.name)}:</strong> ${esc(record||'No completed games')}</div>`:''}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:.82rem;font-weight:600">Their Players (${entries.length})</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" id="scout-import-btn">📂 Import CSV</button>
+        <button class="btn btn-primary btn-sm"   id="scout-add-btn">+ Add Player</button>
+      </div>
+    </div>
+    ${rows||'<div style="color:var(--muted);font-size:.82rem;padding:12px 0;text-align:center">No scouting data yet. Add players manually or import a GameChanger CSV from their team.</div>'}
+  `, `<button class="btn btn-secondary" id="modal-cancel">Close</button>`);
+
+  setTimeout(()=>{
+    document.getElementById('scout-add-btn')?.addEventListener('click',()=>{ closeModal(); openAddScoutModal(opponentId); });
+    document.getElementById('scout-import-btn')?.addEventListener('click',()=>{ closeModal(); importScoutCSV(opponentId); });
+    document.querySelectorAll('.edit-scout').forEach(b=>b.addEventListener('click',()=>{ closeModal(); openAddScoutModal(opponentId, b.dataset.sid); }));
+    document.querySelectorAll('.del-scout').forEach(b=>b.addEventListener('click',()=>{
+      const s=cache.scouting.find(x=>x.id===b.dataset.sid); if(!s) return;
+      softDelete('scouting',s,s.playerName,()=>{ closeModal(); openOpponentScoutingModal(opponentId); });
+    }));
+  },0);
+}
+
+function openAddScoutModal(opponentId, editId) {
+  const opp = cache.opponents.find(x=>x.id===opponentId);
+  const s   = editId ? cache.scouting.find(x=>x.id===editId) : null;
+  openModal(`${s?'Edit':'Add'} Scout — ${esc(opp?.name||'')}`, `
+    <div class="form-group"><label>Player Name *</label><input id="sc-name" value="${esc(s?.playerName||'')}" placeholder="e.g. #12 Jordan Smith"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="form-group" style="margin:0"><label>Position</label>
+        <input id="sc-pos" value="${esc(s?.position||'')}" placeholder="P, C, SS..."></div>
+      <div class="form-group" style="margin:0"><label>Bats</label>
+        <select id="sc-bats">
+          <option value="" ${!s?.bats?'selected':''}>Unknown</option>
+          <option value="R" ${s?.bats==='R'?'selected':''}>Right</option>
+          <option value="L" ${s?.bats==='L'?'selected':''}>Left</option>
+          <option value="S" ${s?.bats==='S'?'selected':''}>Switch</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">
+      ${['ab','h','hr','rbi','bb'].map(f=>`<div class="form-group" style="margin:0"><label style="font-size:.7rem">${f.toUpperCase()}</label>
+        <input id="sc-${f}" type="number" min="0" value="${s?.stats?.[f]||''}" placeholder="0"></div>`).join('')}
+    </div>
+    <div class="form-group"><label>Scouting Notes — strengths, weaknesses, tendencies</label>
+      <textarea id="sc-notes" style="min-height:80px">${esc(s?.notes||'')}</textarea></div>
+  `,`
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-primary" id="modal-submit">${s?'Save':'Add'}</button>
+  `,()=>{
+    const name = document.getElementById('sc-name').value.trim();
+    if(!name){toast('Name required');return;}
+    const entry = {
+      id: s?.id||genId(), opponentId,
+      playerName: name,
+      position:   document.getElementById('sc-pos').value.trim(),
+      bats:       document.getElementById('sc-bats').value,
+      notes:      document.getElementById('sc-notes').value.trim(),
+      stats: { ab:parseInt(document.getElementById('sc-ab').value)||0, h:parseInt(document.getElementById('sc-h').value)||0, hr:parseInt(document.getElementById('sc-hr').value)||0, rbi:parseInt(document.getElementById('sc-rbi').value)||0, bb:parseInt(document.getElementById('sc-bb').value)||0 },
+      importedAt: s?.importedAt||null, updatedAt: new Date().toISOString(),
+    };
+    fbSave('scouting',entry); closeModal();
+    toast(`${name} ${s?'updated':'added'} ✔`);
+  });
+}
+
+function importScoutCSV(opponentId) {
+  const opp = cache.opponents.find(x=>x.id===opponentId);
+  const input = document.createElement('input');
+  input.type='file'; input.accept='.csv,text/csv';
+  input.addEventListener('change',()=>{
+    const file=input.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const lines=e.target.result.trim().split(/\r?\n/).filter(l=>l.trim());
+      if(lines.length<2){toast('CSV appears empty');return;}
+      const headers=parseCSVLine(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,''));
+      const col=name=>{const vs=Array.isArray(name)?name:[name];for(const v of vs){const i=headers.indexOf(v);if(i>=0)return i;}return -1;};
+      const rows=lines.slice(1).map(l=>{
+        const vals=parseCSVLine(l);
+        const get=names=>{const i=col(names);return i>=0?(vals[i]||'').trim():''};
+        return {name:get(['name','player','playername']),pos:get(['pos','position']),ab:get(['ab']),h:get(['h','hits']),hr:get(['hr']),rbi:get(['rbi']),bb:get(['bb','walks'])};
+      }).filter(r=>r.name);
+      if(!rows.length){toast('No player rows found');return;}
+      openModal(`Import ${rows.length} players — ${esc(opp?.name||'')}`,`
+        <div style="font-size:.82rem;color:var(--muted);margin-bottom:10px">These players will be added to ${esc(opp?.name||'opponent')}'s scouting book.</div>
+        <div style="max-height:200px;overflow-y:auto">
+          ${rows.map(r=>`<div style="font-size:.82rem;padding:4px 0;border-bottom:1px solid var(--border)">${esc(r.name)} ${r.pos?'· '+r.pos:''} ${r.ab?'· '+r.ab+' AB':''}</div>`).join('')}
+        </div>
+      `,`
+        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-submit">Import All</button>
+      `,()=>{
+        rows.forEach(r=>fbSave('scouting',{id:genId(),opponentId,playerName:r.name,position:r.pos,bats:'',notes:'',stats:{ab:parseInt(r.ab)||0,h:parseInt(r.h)||0,hr:parseInt(r.hr)||0,rbi:parseInt(r.rbi)||0,bb:parseInt(r.bb)||0},importedAt:new Date().toISOString()}));
+        closeModal(); toast(`Imported ${rows.length} players ✔`);
+      });
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 if (teamCode) {
