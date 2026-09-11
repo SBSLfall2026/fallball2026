@@ -1,0 +1,46 @@
+{
+  "fields": [
+    {
+      "id": "field-swansboro",
+      "name": "Swansboro",
+      "address": "283 Swansboro Loop Rd, Swansboro, NC 28584",
+      "notes": "",
+      "imageData": ""
+    },
+    {
+      "id": "field-downeast",
+      "name": "Downeast",
+      "address": "299 Hill Rd #101, Smyrna, NC 28579",
+      "notes": "",
+      "imageData": ""
+    },
+    {
+      "id": "field-newport",
+      "name": "Newport",
+      "address": "274 Chatham St, Newport, NC 28570",
+      "notes": "",
+      "imageData": ""
+    },
+    {
+      "id": "field-havelock",
+      "name": "Havelock",
+      "address": "1 Recreation Drive, Havelock, NC 28532",
+      "notes": "",
+      "imageData": ""
+    },
+    {
+      "id": "field-pamlico",
+      "name": "Pamlico",
+      "address": "256 Ireland Rd, Bayboro, NC 28515",
+      "notes": "",
+      "imageData": ""
+    },
+    {
+      "id": "field-westernpark",
+      "name": "Western Park",
+      "address": "259 Old NC-58, Cedar Point, NC 28584",
+      "notes": "",
+      "imageData": ""
+    }
+  ]
+}
