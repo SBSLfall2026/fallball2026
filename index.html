@@ -1500,7 +1500,13 @@ function renderLineupContent(gameId) {
     return p.active===false ? `?${label}?` : label;
   };
 
+  // Build carry-forward alert and previous game reference (injected before main lineup)
+  const cfAlert  = buildCarryForwardAlert(gameId, carryFwd, players);
+  const prevRef  = buildPrevGameReference(gameId, players);
+
   el.innerHTML = `
+    ${cfAlert}
+    ${prevRef}
     <div class="lineup-cols">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -2856,17 +2862,88 @@ function renderComplianceTable(gameId) {
   });
 }
 
-function getCarryForwardSet(currentGameId) {
-  // Find the most recent COMPLETED game before this one
+function getPrevGame(currentGameId) {
   const sorted = [...cache.games].sort((a,b)=>b.date.localeCompare(a.date));
   const idx = sorted.findIndex(g=>g.id===currentGameId);
-  const prevGame = sorted[idx+1];
-  if (!prevGame) return new Set();
+  return sorted[idx+1] || null;
+}
+
+function getCarryForwardSet(currentGameId) {
+  const prev = getPrevGame(currentGameId); if (!prev) return new Set();
   return new Set(
     cache.compliance
-      .filter(c=>c.gameId===prevGame.id && (!c.gotAB || !c.gotField))
+      .filter(c=>c.gameId===prev.id && (!c.gotAB||!c.gotField))
       .map(c=>c.playerId)
   );
+}
+
+function getCarryForwardDetail(currentGameId) {
+  // Returns array of { playerId, missedAB, missedField }
+  const prev = getPrevGame(currentGameId); if (!prev) return [];
+  return cache.compliance
+    .filter(c=>c.gameId===prev.id && (!c.gotAB||!c.gotField))
+    .map(c=>({ playerId:c.playerId, missedAB:!c.gotAB, missedField:!c.gotField }));
+}
+
+function buildCarryForwardAlert(gameId, carryFwd, players) {
+  const details = getCarryForwardDetail(gameId);
+  if (!details.length) return '';
+  const prev = getPrevGame(gameId);
+  const rows = details.map(d=>{
+    const p = players.find(x=>x.id===d.playerId); if(!p) return '';
+    const inCurrent = carryFwd.has(d.playerId);
+    const missing = d.missedAB && d.missedField ? 'AB + Fielding'
+                  : d.missedAB ? 'At-Bat' : 'Fielding';
+    const inLineup = [...(cache.lineups.find(l=>l.gameId===gameId)?.entries||[])].some(e=>e.playerId===d.playerId&&e.battingOrder>0);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.06)">
+      <span style="font-size:.95rem">${inLineup?'✅':'⚠️'}</span>
+      <span style="flex:1;font-weight:600;font-size:.85rem">${esc(dname(p))}</span>
+      <span style="font-size:.75rem;color:${d.missedAB&&d.missedField?'#991b1b':'#92400e'}">Missed ${missing}</span>
+      ${inLineup?'<span style="font-size:.72rem;color:#166534;font-weight:600">In lineup ✓</span>':'<span style="font-size:.72rem;color:#991b1b;font-weight:600">Not yet added</span>'}
+    </div>`;
+  }).join('');
+
+  return `<div style="background:#fff3cd;border:1px solid #f59e0b;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">
+    <div style="font-weight:700;font-size:.85rem;color:#78350f;margin-bottom:8px">
+      ⚑ MUST PLAY — SBSL Compliance${prev?` (from ${prev.date} vs ${esc(prev.opponent)})`:''}</div>
+    <div style="font-size:.78rem;color:#78350f;margin-bottom:8px">These players didn't get required AB and/or fielding last game — they must play this game per league rules.</div>
+    ${rows}
+  </div>`;
+}
+
+function buildPrevGameReference(gameId, players) {
+  const prev = getPrevGame(gameId); if (!prev) return '';
+  const prevLineup = cache.lineups.find(l=>l.gameId===prev.id);
+  if (!prevLineup?.entries?.length) return '';
+  const prevCompliance = cache.compliance.filter(c=>c.gameId===prev.id);
+  const ordered = [...prevLineup.entries].filter(e=>e.battingOrder>0).sort((a,b)=>a.battingOrder-b.battingOrder);
+
+  const rows = ordered.map((e,i)=>{
+    const p = players.find(x=>x.id===e.playerId); if(!p) return '';
+    const comp = prevCompliance.find(c=>c.playerId===e.playerId);
+    const gotBoth  = comp?.gotAB && comp?.gotField;
+    const gotOne   = comp && (comp.gotAB||comp.gotField) && !(comp.gotAB&&comp.gotField);
+    const gotNone  = comp && !comp.gotAB && !comp.gotField;
+    const statusIcon = gotBoth?'✅':gotOne?'🟡':gotNone?'🔴':'⚪';
+    const statusTip  = gotBoth?'Got AB + Fielding':gotOne?`Got ${comp?.gotAB?'AB':'Fielding'} only`:'Missed both';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.8rem;border-bottom:1px solid var(--border)">
+      <span style="color:var(--muted);min-width:18px">${i+1}</span>
+      <span title="${statusTip}">${statusIcon}</span>
+      <span style="flex:1;${gotNone?'color:#991b1b;font-weight:600':''}">${esc(dname(p))}</span>
+      <span style="color:var(--muted);font-size:.73rem">${esc(e.fieldingPosition||'—')}</span>
+    </div>`;
+  }).join('');
+
+  return `<details style="margin-bottom:14px">
+    <summary style="cursor:pointer;font-size:.8rem;font-weight:600;color:var(--green-dark);user-select:none;list-style:none;display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--green-light);border-radius:var(--radius)">
+      📋 Previous Game Reference — ${esc(prev.date)} vs ${esc(prev.opponent)}${prev.result?' ('+prev.result+')':''}
+      <span style="margin-left:auto;font-size:.72rem;color:var(--muted)">click to expand</span>
+    </summary>
+    <div style="padding:8px 12px;background:white;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius)">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px">✅ Got both · 🟡 Got one · 🔴 Missed both · ⚪ No compliance data</div>
+      ${rows}
+    </div>
+  </details>`;
 }
 
 function renderCarryForward() {
