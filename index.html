@@ -119,8 +119,10 @@
     .checkbox-group label.checked { background: var(--green-light); border-color: var(--green); color: var(--green-dark); font-weight: 600; }
 
     /* ── Toast ── */
-    .toast { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); background: #1a2e1a; color: white; padding: 10px 22px; border-radius: 20px; font-size: .85rem; z-index: 700; opacity: 0; transition: opacity .3s; pointer-events: none; white-space: nowrap; }
-    .toast.show { opacity: 1; }
+    .toast { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); background: #1a2e1a; color: white; padding: 10px 22px; border-radius: 20px; font-size: .85rem; z-index: 700; opacity: 0; transition: opacity .3s; white-space: nowrap; display:flex; align-items:center; gap:10px; }
+    .toast.show { opacity: 1; pointer-events:auto; }
+    .toast-undo { background:none; border:1px solid rgba(255,255,255,.5); color:white; border-radius:4px; padding:2px 10px; font-size:.8rem; cursor:pointer; font-weight:700; flex-shrink:0; }
+    .toast-undo:hover { background:rgba(255,255,255,.15); }
 
     /* ── Roster player cards ── */
     .player-card { position: relative; padding: 14px; }
@@ -946,8 +948,49 @@ function dname(p) { if (!p) return '?'; const base = p.nickname ? `${p.name} "${
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function toast(msg) {
   const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
+  el.innerHTML = `<span>${esc(msg)}</span>`;
+  el.classList.add('show');
   clearTimeout(el._t); el._t = setTimeout(()=>el.classList.remove('show'), 2800);
+}
+
+function toastWithUndo(msg, onUndo, duration) {
+  const el = document.getElementById('toast');
+  el.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo">↩ Undo</button>`;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  let used = false;
+  el.querySelector('.toast-undo').addEventListener('click', () => {
+    if (!used) { used = true; onUndo(); el.classList.remove('show'); }
+  });
+  el._t = setTimeout(() => { el.classList.remove('show'); }, duration || 7000);
+}
+
+// Soft delete: deletes immediately, offers Undo for a few seconds
+function softDelete(collName, item, label, rerenderFn) {
+  fbDelete(collName, item.id);
+  if (rerenderFn) rerenderFn();
+  toastWithUndo(`${label} deleted`, () => {
+    fbSave(collName, item);
+    if (rerenderFn) rerenderFn();
+    toast(`${label} restored ✔`);
+  });
+}
+
+// For major actions: confirm first, then soft-delete with undo
+function confirmDelete(message, collName, item, label, rerenderFn) {
+  openModal('Confirm Delete', `
+    <div style="text-align:center;padding:12px 0">
+      <div style="font-size:2rem;margin-bottom:10px">🗑️</div>
+      <div style="font-weight:600;font-size:.95rem;margin-bottom:6px">${esc(message)}</div>
+      <div style="font-size:.8rem;color:var(--muted)">You'll have 7 seconds to undo after deleting.</div>
+    </div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-danger"    id="modal-submit">Delete</button>
+  `, () => {
+    closeModal();
+    softDelete(collName, item, label, rerenderFn);
+  });
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -1355,8 +1398,8 @@ function openPlayerModal(id, hintType) {
 }
 
 function delPlayer(id) {
-  if (!confirm('Remove this player from the roster?')) return;
-  fbDelete('players', id); syncPlayerSelects(); toast('Player removed');
+  const p = cache.players.find(x=>x.id===id); if(!p) return;
+  confirmDelete(`Remove ${dname(p)} from the roster?`, 'players', p, dname(p), ()=>{ renderRoster(); syncPlayerSelects(); });
 }
 
 document.getElementById('fab').addEventListener('click', ()=>openPlayerModal(null));
@@ -2651,7 +2694,9 @@ function renderNotesList() {
     </div>`;
   }).join('');
   el.querySelectorAll('[data-action="del"]').forEach(btn=>btn.addEventListener('click',()=>{
-    fbDelete('notes',btn.dataset.nid); renderNotesList(); toast('Note deleted');
+    const note = cache.notes.find(n=>n.id===btn.dataset.nid); if(!note) return;
+    const player = cache.players.find(p=>p.id===note.playerId);
+    confirmDelete(`Delete note for ${player?dname(player):'this player'}?`, 'notes', note, 'Note', renderNotesList);
   }));
   el.querySelectorAll('[data-action="flag"]').forEach(btn=>btn.addEventListener('click',()=>{
     const note = cache.notes.find(n=>n.id===btn.dataset.nid); if(!note) return;
@@ -2743,7 +2788,8 @@ function renderResGrid() {
   }).join('');
   el.querySelectorAll('[data-action="edit-res"]').forEach(b=>b.addEventListener('click',()=>openResModal(b.dataset.id)));
   el.querySelectorAll('[data-action="del-res"]').forEach(b=>b.addEventListener('click',()=>{
-    fbDelete('resources',b.dataset.id); renderResGrid(); toast('Removed');
+    const r=cache.resources.find(x=>x.id===b.dataset.id); if(!r) return;
+    confirmDelete(`Remove "${r.title}"?`, 'resources', r, 'Resource', renderResGrid);
   }));
 }
 
@@ -3475,8 +3521,8 @@ function viewField(id) {
 }
 
 function deleteField(id) {
-  if (!confirm('Remove this field?')) return;
-  fbDelete('fields', id); renderFieldGrid(); toast('Field removed');
+  const f = cache.fields.find(x=>x.id===id); if(!f) return;
+  confirmDelete(`Remove ${f.name} from fields?`, 'fields', f, f.name, renderFieldGrid);
 }
 
 function openFieldModal(id) {
@@ -3911,8 +3957,8 @@ function renderOppGrid() {
 
   el.querySelectorAll('.edit-opp').forEach(b=>b.addEventListener('click',()=>openOppModal(b.dataset.oid)));
   el.querySelectorAll('.del-opp').forEach(b=>b.addEventListener('click',()=>{
-    if(!confirm('Remove this opponent?')) return;
-    fbDelete('opponents', b.dataset.oid); renderOppGrid(); toast('Opponent removed');
+    const o=cache.opponents.find(x=>x.id===b.dataset.oid); if(!o) return;
+    confirmDelete(`Remove ${o.name} from opponents?`, 'opponents', o, o.name, renderOppGrid);
   }));
 }
 
@@ -4168,8 +4214,11 @@ function wirePosPanel(pos) {
   const body = document.getElementById('pos-panel-body');
   body.querySelectorAll('.edit-pos-note').forEach(btn=>btn.addEventListener('click',()=>openPosNoteModal(btn.dataset.pid,btn.dataset.pos)));
   body.querySelectorAll('.del-battery').forEach(btn=>btn.addEventListener('click',()=>{
-    fbDelete('batteries',btn.dataset.bid);
-    body.innerHTML=buildPosPanelHTML(pos); wirePosPanel(pos); toast('Removed');
+    const b=cache.batteries.find(x=>x.id===btn.dataset.bid); if(!b) return;
+    const pn=id=>{const p=cache.players.find(x=>x.id===id);return p?dname(p):'?';};
+    softDelete('batteries', b, `${pn(b.pitcherId)} + ${pn(b.catcherId)} combination`, ()=>{
+      body.innerHTML=buildPosPanelHTML(pos); wirePosPanel(pos);
+    });
   }));
   document.getElementById('add-battery-btn')?.addEventListener('click', openAddBatteryModal);
 }
