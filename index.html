@@ -843,6 +843,7 @@ auth.getRedirectResult().catch(e => { if(e.code) console.warn('Redirect:', e.cod
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
 const COLLS  = ['players','games','lineups','stats','notes','resources','pitching','compliance','fields','opponents','activity','coaches','batteries','chat','history','scouting'];
 const NO_HISTORY = new Set(['history','activity','chat']); // skip logging for these
+let isImporting = false; // suppress history logging during bulk imports
 
 // ── Cache (mirrors Firestore, updated by listeners) ───────────────────────────
 const cache = { players:[], games:[], lineups:[], stats:[], notes:[], resources:[], pitching:[], compliance:[], fields:[], opponents:[], activity:[], coaches:[], batteries:[], chat:[], history:[], scouting:[], settings:{} };
@@ -892,7 +893,7 @@ function changeDescription(collName, action, prev, next) {
 }
 
 function logChange(collName, docId, action, previousData, newData) {
-  if (!currentUser) return; // only log when someone is signed in
+  if (!currentUser || isImporting) return; // skip when not signed in or doing bulk import
   const expires = new Date(Date.now()+24*60*60*1000).toISOString();
   const entry = {
     id: genId(), collection: collName, documentId: docId, action,
@@ -2926,13 +2927,16 @@ async function importAllData(file) {
     try {
       const data = JSON.parse(e.target.result);
       if (!confirm(`Import backup from "${file.name}"?\nThis will ADD/OVERWRITE data in the current team. Continue?`)) return;
+      isImporting = true; // suppress history logging during bulk import
       for (const coll of COLLS) {
         if (Array.isArray(data[coll])) {
           for (const item of data[coll]) { if (item.id) await fbSave(coll, item); }
         }
       }
       if (data.settings) await fbSaveSettings(data.settings);
-      toast('Import complete ✔');
+      isImporting = false;
+      toast('Import complete — reloading…');
+      setTimeout(()=>location.reload(), 1200);
     } catch(ex) { toast('Could not read backup file'); console.error(ex); }
   };
   reader.readAsText(file);
@@ -4022,18 +4026,20 @@ function renderOppGrid() {
     const T  = vs.filter(g=>g.result==='T').length;
     const record = vs.length ? `${W}W-${L}L${T?'-'+T+'T':''}` : 'No games yet';
     return `
-      <div class="card" style="position:relative">
-        <div style="position:absolute;top:10px;right:10px;display:flex;gap:4px">
-          <button class="btn btn-secondary btn-sm scout-opp" data-oid="${esc(o.id)}" style="font-size:.7rem">🔍 Scout</button>
-          <button class="btn-icon edit-opp" data-oid="${esc(o.id)}" title="Edit">✏️</button>
-          <button class="btn-icon del-opp"  data-oid="${esc(o.id)}" title="Delete">🗑️</button>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+          <div style="font-size:1.05rem;font-weight:800">${esc(o.name)}</div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn-icon edit-opp" data-oid="${esc(o.id)}" title="Edit">✏️</button>
+            <button class="btn-icon del-opp"  data-oid="${esc(o.id)}" title="Delete">🗑️</button>
+          </div>
         </div>
-        <div style="font-size:1.1rem;font-weight:800;margin-bottom:6px">${esc(o.name)}</div>
-        <div style="margin-bottom:8px">
+        <div style="margin-bottom:6px">
           <span style="background:${bg};color:${col};border-radius:4px;padding:2px 10px;font-size:.78rem;font-weight:700">${diff}/10 · ${lbl}</span>
         </div>
-        <div style="font-size:.78rem;color:var(--muted);margin-bottom:4px">Season record: <strong style="color:var(--text)">${record}</strong></div>
-        ${o.notes?`<div style="font-size:.78rem;color:var(--muted);font-style:italic">${esc(o.notes)}</div>`:''}
+        <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">Season record: <strong style="color:var(--text)">${record}</strong></div>
+        ${o.notes?`<div style="font-size:.75rem;color:var(--muted);font-style:italic;margin-bottom:8px">${esc(o.notes)}</div>`:''}
+        <button class="btn btn-secondary btn-sm scout-opp" data-oid="${esc(o.id)}" style="width:100%;justify-content:center">🔍 View Scouting Book</button>
       </div>`;
   }).join('');
 
