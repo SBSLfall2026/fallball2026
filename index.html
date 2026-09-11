@@ -1066,7 +1066,7 @@ function confirmDelete(message, collName, item, label, rerenderFn) {
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 function openModal(title, body, footer, onSubmit) {
-  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-title').innerHTML = title; // allows entities like "Nit" to render correctly
   document.getElementById('modal-body').innerHTML    = body;
   document.getElementById('modal-footer').innerHTML  = footer || '';
   document.getElementById('modal-overlay').classList.add('open');
@@ -1337,6 +1337,25 @@ function playerCardHTML(p) {
       <div class="p-positions">${(p.positions||[]).map(x=>`<span class="badge badge-pos">${esc(x)}</span>`).join('')}</div>
       ${p.playerPhone?`<div class="p-contact"><span class="p-contact-label">Player</span>${esc(p.playerPhone)}</div>`:''}
       ${p.parentPhone?`<div class="p-contact"><span class="p-contact-label">Parent</span>${esc(p.parentPhone)}</div>`:''}
+      ${(()=>{
+        const ps=cache.stats.filter(s=>s.playerId===p.id);
+        if(!ps.length) return '';
+        const ab=ps.reduce((s,x)=>s+(parseInt(x.ab)||0),0);
+        const h=ps.reduce((s,x)=>s+(parseInt(x['1b'])||0)+(parseInt(x['2b'])||0)+(parseInt(x['3b'])||0)+(parseInt(x.hr)||0),0);
+        const hr=ps.reduce((s,x)=>s+(parseInt(x.hr)||0),0);
+        const rbi=ps.reduce((s,x)=>s+(parseInt(x.rbi)||0),0);
+        const sb=ps.reduce((s,x)=>s+(parseInt(x.sb)||0),0);
+        const avg=ab>0?(h/ab).toFixed(3):'—';
+        const c=ab>0?(h/ab>=0.300?'#166534':h/ab>=0.200?'#92400e':'#991b1b'):'var(--muted)';
+        return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:5px 8px;background:var(--bg);border-radius:4px;flex-wrap:wrap">
+          <span style="font-size:.82rem;font-weight:800;color:${c}">${avg}</span>
+          <span style="font-size:.7rem;color:var(--muted)">AVG · ${ps.length} GP</span>
+          <span style="font-size:.7rem;color:var(--muted)">·</span>
+          <span style="font-size:.75rem"><strong>${hr}</strong> HR</span>
+          <span style="font-size:.75rem"><strong>${rbi}</strong> RBI</span>
+          <span style="font-size:.75rem"><strong>${sb}</strong> SB</span>
+        </div>`;
+      })()}
       <div class="mt-2" style="display:flex;gap:14px;flex-wrap:wrap">
         <label class="toggle" style="font-size:.78rem">
           <input type="checkbox" class="active-chk" data-id="${esc(p.id)}" ${p.active!==false?'checked':''}> Active
