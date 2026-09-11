@@ -2178,53 +2178,44 @@ function renderPlayerSeasonCards() {
     const avgNum=ab>0?h/ab:null;
     const avgColor=avgNum===null?'var(--muted)':avgNum>=0.300?'#166534':avgNum>=0.200?'#92400e':'#991b1b';
     const avgBg=avgNum===null?'var(--border)':avgNum>=0.300?'#dcfce7':avgNum>=0.200?'#fef9c3':'#fee2e2';
-    const statusBadge = p.active===false
-      ? `<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:.65rem">Inactive</span>`
-      : p.injured
-        ? `<span class="badge badge-injured" style="font-size:.65rem">Injured</span>`
-        : `<span class="badge" style="background:var(--green-light);color:var(--green-dark);font-size:.65rem">Active</span>`;
+    const statusDot = p.active===false ? `<span style="color:#991b1b;font-size:.7rem">● Inactive</span>`
+      : p.injured ? `<span style="color:#d97706;font-size:.7rem">● Injured</span>`
+      : `<span style="color:#166534;font-size:.7rem">● Active</span>`;
+    // Build name without escaping quotes so "Nit" renders correctly
+    const nameHtml = esc(p.name)
+      + (p.nickname ? ` <span style="color:var(--muted);font-style:italic">"${esc(p.nickname)}"</span>` : '')
+      + (p.number   ? ` <span style="color:var(--muted);font-weight:400">#${esc(p.number)}</span>` : '');
     const trend = !noStats && ps.length>=2 ? `
-      <details style="margin-top:8px">
-        <summary style="cursor:pointer;font-size:.72rem;color:var(--muted);user-select:none;list-style:none">▶ Game-by-game trend</summary>
-        <div style="margin-top:6px">${buildPlayerGameTrend(p.id)}</div>
+      <details style="margin-top:6px">
+        <summary style="cursor:pointer;font-size:.7rem;color:var(--muted);user-select:none;list-style:none">▶ Game trend</summary>
+        <div style="margin-top:5px">${buildPlayerGameTrend(p.id)}</div>
       </details>` : '';
 
     return `
       <div class="card" style="padding:12px 14px${noStats?';opacity:.6':''}">
-        <div style="display:flex;gap:12px;align-items:flex-start">
-          <!-- Left: player info -->
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:.95rem;margin-bottom:2px">
-              ${esc(dname(p))}${p.number?` <span style="color:var(--muted);font-weight:400">#${p.number}</span>`:''}
+        <!-- Header: name left, AVG badge right — mirrors opponent scouting card -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+          <div>
+            <div style="font-weight:700;font-size:.95rem">${nameHtml}</div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">
+              ${statusDot}
+              <span style="font-size:.7rem;color:var(--muted)">${(p.positions||[]).slice(0,3).join(' / ')}</span>
             </div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
-              ${statusBadge}
-              ${(p.positions||[]).slice(0,3).map(pos=>`<span class="badge badge-pos" style="font-size:.62rem">${pos}</span>`).join('')}
-            </div>
-            <div style="font-size:.75rem;color:var(--muted)">${ps.length} GP · ${ab} AB · ${h} H</div>
           </div>
-          <!-- Right: key stats -->
           <div style="text-align:center;flex-shrink:0">
-            <div style="background:${avgBg};color:${avgColor};border-radius:6px;padding:4px 10px;margin-bottom:4px">
-              <div style="font-size:1.3rem;font-weight:800;line-height:1">${avg}</div>
-              <div style="font-size:.62rem;font-weight:600">AVG</div>
+            <div style="background:${avgBg};color:${avgColor};border-radius:6px;padding:3px 10px">
+              <div style="font-size:1.25rem;font-weight:800;line-height:1">${avg}</div>
+              <div style="font-size:.58rem;font-weight:700">AVG</div>
             </div>
           </div>
         </div>
-        <!-- Stat row -->
-        ${noStats
-          ? `<div style="font-size:.78rem;color:var(--muted);font-style:italic;margin-top:6px">No stats entered yet</div>`
-          : `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:8px;text-align:center">
-              ${[['OBP',obp],['SLG',slg],['HR',hr],['RBI',rbi],['SB',sb],['K',k+kl]].map(([lbl,val])=>`
-                <div style="background:var(--bg);border-radius:4px;padding:3px 2px">
-                  <div style="font-size:.78rem;font-weight:700">${val}</div>
-                  <div style="font-size:.58rem;color:var(--muted)">${lbl}</div>
-                </div>`).join('')}
-            </div>`}
-        ${trend}
-        <div style="margin-top:8px;display:flex;gap:6px">
-          <button class="btn btn-secondary btn-sm stats-drill" data-pid="${esc(p.id)}" style="font-size:.72rem;flex:1;justify-content:center">📊 Full Stats</button>
+        <!-- Stat line: mirrors "AVG .xxx · HR X · RBI X" in scouting entries -->
+        <div style="font-size:.78rem;color:var(--muted)">
+          ${noStats ? '<em>No stats entered yet</em>'
+            : `${ps.length} GP · ${ab} AB · OBP ${obp} · SLG ${slg} · <strong style="color:var(--text)">${hr} HR</strong> · <strong>${rbi} RBI</strong> · ${sb} SB · ${k+kl} K`}
         </div>
+        ${trend}
+        <button class="btn btn-secondary btn-sm stats-drill" data-pid="${esc(p.id)}" style="width:100%;justify-content:center;margin-top:8px;font-size:.78rem">📊 View Full Stats &amp; Game Breakdown</button>
       </div>`;
   }).join('');
 
