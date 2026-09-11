@@ -133,6 +133,9 @@
     .player-card.inactive { opacity: .5; }
     .player-card.injured { border-left: 3px solid var(--red); }
     .badge-injured { background: #fee2e2; color: #991b1b; }
+    .badge-dupnum  { background: #fff3cd; color: #856404; }
+    .dup-num       { color: #d97706; font-weight: 800; }
+    .dup-banner    { background: #fff3cd; border: 1px solid #f59e0b; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: .82rem; color: #78350f; display: flex; gap: 8px; align-items: flex-start; }
     .player-card.callup   { border-left: 3px solid #7c3aed; }
     .player-card.combined { border-left: 3px solid #0284c7; }
     .badge-callup   { background: #ede9fe; color: #5b21b6; }
@@ -971,6 +974,7 @@ document.getElementById('main-nav').addEventListener('click', e => {
 
 // ── ROSTER ────────────────────────────────────────────────────────────────────
 const POSITIONS = ['P','C','1B','2B','3B','SS','LF','CF','RF','DP','FLEX','UTIL'];
+let dupNumbers = new Set(); // jersey numbers that appear more than once
 
 function renderStaffCard() {
   const s = getSettings();
@@ -1016,7 +1020,7 @@ function playerCardHTML(p) {
         <button class="btn-icon" data-action="edit" data-id="${esc(p.id)}" title="Edit">✏️</button>
         <button class="btn-icon" data-action="del"  data-id="${esc(p.id)}" title="Delete">🗑️</button>
       </div>
-      <div class="p-number">#${esc(p.number||'—')}</div>
+      <div class="p-number${p.number&&dupNumbers.has(String(p.number))?' dup-num':''}">#${esc(p.number||'—')}${p.number&&dupNumbers.has(String(p.number))?` <span class="badge badge-dupnum" title="Duplicate jersey number — must resolve before spring season">⚠️ Dup #</span>`:''}</div>
       <div class="p-name">${esc(p.name)}${p.injured?` <span class="badge badge-injured">INJURED</span>`:''}</div>
       ${p.nickname?`<div style="font-size:.8rem;color:var(--muted);font-style:italic;margin-top:-4px;margin-bottom:4px">"${esc(p.nickname)}"</div>`:''}
       ${typeBadge ? `<div style="margin-bottom:4px">${typeBadge}</div>` : ''}
@@ -1056,6 +1060,30 @@ function renderRoster() {
   const regular    = allPlayers.filter(p=>(!p.playerType||p.playerType==='regular')&&(showInact||p.active!==false));
   const borrowed   = allPlayers.filter(p=>p.playerType==='callup'||p.playerType==='combined');
   const grid       = document.getElementById('roster-grid');
+
+  // Detect duplicate jersey numbers among active regular players
+  const activeNums = allPlayers
+    .filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular')&&p.number)
+    .map(p=>String(p.number));
+  dupNumbers = new Set(activeNums.filter((n,i)=>activeNums.indexOf(n)!==i));
+
+  // Show/hide duplicate warning banner
+  let dupBanner = document.getElementById('dup-num-banner');
+  if (!dupBanner) {
+    dupBanner = document.createElement('div');
+    dupBanner.id = 'dup-num-banner';
+    grid.parentNode.insertBefore(dupBanner, grid);
+  }
+  if (dupNumbers.size > 0) {
+    // Find who has each duplicate number
+    const conflicts = [...dupNumbers].map(n => {
+      const names = allPlayers.filter(p=>String(p.number)===n&&p.active!==false).map(p=>p.name).join(' & ');
+      return `#${n} (${names})`;
+    }).join(', ');
+    dupBanner.innerHTML = `<div class="dup-banner">⚠️ <div><strong>Jersey number conflict${dupNumbers.size>1?'s':''}:</strong> ${esc(conflicts)} — must be resolved before spring season post-season / all-stars.</div></div>`;
+  } else {
+    dupBanner.innerHTML = '';
+  }
   if (!regular.length && !borrowed.length) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
       <div class="icon">⚾</div><p>No players yet. Tap + to add your first player.</p></div>`;
@@ -3086,9 +3114,33 @@ function renderSettingsCoachList() {
         <div style="font-size:.72rem;color:var(--muted)">${esc(c.email||'')}</div>
       </div>
       <span class="badge" style="background:var(--green-light);color:var(--green-dark)">${esc(c.role||'Coach')}</span>
-      <button class="btn btn-danger btn-sm" data-action="del-coach" data-cid="${esc(c.id)}" style="font-size:.72rem">✕</button>
+      <button class="btn btn-secondary btn-sm" data-action="edit-coach" data-cid="${esc(c.id)}" style="font-size:.72rem">Edit</button>
+      <button class="btn btn-danger btn-sm"    data-action="del-coach"  data-cid="${esc(c.id)}" style="font-size:.72rem">✕</button>
     </div>
   `).join('');
+  el.querySelectorAll('[data-action="edit-coach"]').forEach(b=>b.addEventListener('click',()=>{
+    const c=cache.coaches.find(x=>x.id===b.dataset.cid); if(!c) return;
+    openModal(`Edit Coach — ${c.name}`,`
+      <div class="form-group"><label>Display Name</label><input id="ec-name" value="${esc(c.name)}"></div>
+      <div class="form-group"><label>Email</label><input id="ec-email" type="email" value="${esc(c.email||'')}" placeholder="Must match their sign-in email"></div>
+      <div class="form-group"><label>Role</label>
+        <input id="ec-role" value="${esc(c.role||'')}" placeholder="e.g. Head Coach, Assistant Coach" list="role-suggestions-edit">
+      <datalist id="role-suggestions-edit">
+        <option value="Head Coach"><option value="Assistant Coach"><option value="Head Coach / Manager">
+        <option value="Assistant Coach / Administrator"><option value="Scorekeeper"><option value="Volunteer Coach">
+      </datalist>
+      </div>
+    `,`
+      <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+      <button class="btn btn-primary"   id="modal-submit">Save</button>
+    `,()=>{
+      const name  = document.getElementById('ec-name').value.trim();
+      const email = document.getElementById('ec-email').value.trim().toLowerCase();
+      if(!name||!email){toast('Name and email required');return;}
+      fbSave('coaches',{...c,name,email,role:document.getElementById('ec-role').value});
+      closeModal(); renderSettingsCoachList(); toast('Coach updated ✔');
+    });
+  }));
   el.querySelectorAll('[data-action="del-coach"]').forEach(b=>b.addEventListener('click',()=>{
     if(!confirm(`Remove ${cache.coaches.find(c=>c.id===b.dataset.cid)?.name}? They will lose access immediately.`)) return;
     fbDelete('coaches',b.dataset.cid); renderSettingsCoachList(); toast('Coach removed');
@@ -3101,11 +3153,16 @@ function openAddCoachModal() {
     <div class="form-group"><label>Full Name *</label><input id="nc-name" placeholder="e.g. John Smith"></div>
     <div class="form-group"><label>Email Address * <span style="font-size:.72rem">(must match what they used to create their account)</span></label>
       <input id="nc-email" type="email" placeholder="coach@email.com"></div>
-    <div class="form-group"><label>Role</label>
-      <select id="nc-role">
-        <option value="Head Coach">Head Coach</option>
-        <option value="Assistant Coach" selected>Assistant Coach</option>
-      </select>
+    <div class="form-group"><label>Role / Title</label>
+      <input id="nc-role" placeholder="e.g. Head Coach, Assistant Coach, Administrator" value="Assistant Coach" list="role-suggestions">
+      <datalist id="role-suggestions">
+        <option value="Head Coach">
+        <option value="Assistant Coach">
+        <option value="Head Coach / Manager">
+        <option value="Assistant Coach / Administrator">
+        <option value="Scorekeeper">
+        <option value="Volunteer Coach">
+      </datalist>
     </div>
   `, `
     <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
