@@ -307,6 +307,17 @@
     .rules-textarea { width: 100%; min-height: 180px; resize: vertical; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: .875rem; font-family: inherit; line-height: 1.6; }
     .rules-textarea:focus { outline: none; border-color: var(--green); }
 
+    /* ── Game timeline chips ── */
+    .game-timeline { display:flex; gap:6px; margin-bottom:14px; overflow-x:auto; padding-bottom:4px; }
+    .game-timeline::-webkit-scrollbar { display:none; }
+    .gtl-chip { flex-shrink:0; padding:6px 12px; border-radius:20px; border:1px solid var(--border); background:white; font-size:.78rem; cursor:pointer; text-align:center; transition:all .12s; }
+    .gtl-chip:hover { border-color:var(--green); }
+    .gtl-chip.current  { background:var(--green); color:white; border-color:var(--green); font-weight:600; }
+    .gtl-chip.upcoming { border-color:var(--blue); color:var(--blue); }
+    .gtl-chip.past     { opacity:.75; }
+    .gtl-chip .gtl-label { font-weight:700; font-size:.8rem; }
+    .gtl-chip .gtl-sub   { font-size:.68rem; color:inherit; opacity:.75; }
+
     /* ── Schedule ── */
     .schedule-layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
     @media (max-width:720px) { .schedule-layout { grid-template-columns: 1fr; } }
@@ -1466,19 +1477,86 @@ const DIAMOND = [
 function getLineup(gameId) {
   return cache.lineups.find(l=>l.gameId===gameId) || { id: gameId, gameId, entries:[] };
 }
-function saveLineup(gameId, entries, scratchedOverride, lockedOverride) {
+function saveLineup(gameId, entries, scratchedOverride, lockedOverride, fieldedOverride) {
   const existing = cache.lineups.find(l=>l.gameId===gameId);
-  const scratched = scratchedOverride !== undefined ? scratchedOverride : (existing?.scratched || []);
-  const locked    = lockedOverride    !== undefined ? lockedOverride    : (existing?.locked    || false);
-  fbSave('lineups', { id: existing?.id||gameId, gameId, entries, scratched, locked, lastUpdated: new Date().toISOString() });
+  const scratched       = scratchedOverride !== undefined ? scratchedOverride : (existing?.scratched       || []);
+  const locked          = lockedOverride    !== undefined ? lockedOverride    : (existing?.locked          || false);
+  const fieldedPlayers  = fieldedOverride   !== undefined ? fieldedOverride   : (existing?.fieldedPlayers  || []);
+  fbSave('lineups', { id: existing?.id||gameId, gameId, entries, scratched, locked, fieldedPlayers, lastUpdated: new Date().toISOString() });
 }
 
-function renderLineupTab() { syncGameSelects(); renderLineupContent(document.getElementById('lineup-game-sel').value); }
+// ── Smart game selection ──────────────────────────────────────────────────────
+function bestGameId() {
+  const games  = [...cache.games].sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  const todayS = today();
+  // 1. Today's game
+  const todayGame = games.find(g=>g.date===todayS&&!g.result);
+  if (todayGame) return todayGame.id;
+  // 2. Next upcoming game
+  const next = games.find(g=>g.date>todayS&&!g.result);
+  if (next) return next.id;
+  // 3. Most recent completed game
+  const past = [...games].filter(g=>g.result||g.date<todayS).pop();
+  return past?.id || games[games.length-1]?.id || '';
+}
+
+function buildGameTimeline(selectedId, onSelect) {
+  const games   = [...cache.games].sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  const todayS  = today();
+  if (!games.length) return '<div style="font-size:.8rem;color:var(--muted);margin-bottom:14px">No games yet — add one in the Schedule tab.</div>';
+
+  // Show: last 2 past + current/next + next 2 upcoming (max ~5 chips)
+  const selectedIdx = games.findIndex(g=>g.id===selectedId);
+  const start = Math.max(0, selectedIdx-2);
+  const end   = Math.min(games.length, selectedIdx+3);
+  const slice = games.slice(start, end);
+
+  const chips = slice.map(g => {
+    const isPast     = (g.date < todayS) || !!g.result;
+    const isUpcoming = !g.result && g.date >= todayS;
+    const isSel      = g.id === selectedId;
+    const d          = new Date(g.date+'T12:00:00');
+    const dateStr    = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const resultBadge = g.result ? ` (${g.result})` : '';
+    const cls = isSel ? 'current' : isUpcoming ? 'upcoming' : 'past';
+    return `<div class="gtl-chip ${cls}" data-gid="${esc(g.id)}">
+      <div class="gtl-label">${dateStr}${resultBadge}</div>
+      <div class="gtl-sub">vs ${esc(g.opponent)}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="game-timeline" id="game-timeline">${chips}</div>`;
+}
+
+function wireTimeline(onSelect) {
+  document.querySelectorAll('#game-timeline .gtl-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      document.querySelectorAll('#game-timeline .gtl-chip').forEach(c=>c.classList.remove('current'));
+      chip.classList.add('current');
+      onSelect(chip.dataset.gid);
+    });
+  });
+}
+
+function renderLineupTab() {
+  syncGameSelects();
+  const sel = document.getElementById('lineup-game-sel');
+  // Auto-select best game if nothing chosen
+  if (!sel.value && cache.games.length) {
+    const best = bestGameId();
+    if (best) sel.value = best;
+  }
+  renderLineupContent(sel.value);
+}
 function renderLineupContent(gameId) {
   const el = document.getElementById('lineup-content');
-  if (!gameId) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>Select a game above or create a new one.</p></div>`;
+  if (!gameId && !cache.games.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No games yet — add one in the Schedule tab.</p></div>`;
     return;
+  }
+  if (!gameId) {
+    const best = bestGameId();
+    if (best) { document.getElementById('lineup-game-sel').value = best; renderLineupContent(best); return; }
   }
   const lineup  = getLineup(gameId);
   const entries = lineup.entries || [];
@@ -1501,10 +1579,12 @@ function renderLineupContent(gameId) {
   };
 
   // Build carry-forward alert and previous game reference (injected before main lineup)
-  const cfAlert  = buildCarryForwardAlert(gameId, carryFwd, players);
-  const prevRef  = buildPrevGameReference(gameId, players);
+  const cfAlert   = buildCarryForwardAlert(gameId, carryFwd, players);
+  const prevRef   = buildPrevGameReference(gameId, players);
+  const timeline  = buildGameTimeline(gameId, id=>{ document.getElementById('lineup-game-sel').value=id; renderLineupContent(id); });
 
   el.innerHTML = `
+    ${timeline}
     ${cfAlert}
     ${prevRef}
     <div class="lineup-cols">
@@ -1559,9 +1639,12 @@ function renderLineupContent(gameId) {
           <button class="btn btn-secondary btn-sm" id="copy-lineup-btn">Copy Last Game's Lineup</button>
           ${lineup.lastUpdated ? `<span style="font-size:.72rem;color:var(--muted)">Updated ${new Date(lineup.lastUpdated).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>` : ''}
         </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:8px;padding:6px 8px;background:var(--green-light);border-radius:4px">
+          💡 <strong>All active players should be in the batting order.</strong> Use the Add button above to include everyone. The fielding diamond shows who <em>starts</em> on defense.
+        </div>
       </div>
       <div class="card">
-        <div class="col-title">🧤 Field Positions</div>
+        <div class="col-title">🧤 Starting Defense</div>
         <svg id="diamond-svg" viewBox="0 0 260 225" xmlns="http://www.w3.org/2000/svg">
           <rect width="260" height="225" fill="#e8f5e8" rx="4"/>
           <path d="M 20,180 Q 130,10 240,180" fill="none" stroke="#cddacd" stroke-width="1.5" stroke-dasharray="5,4"/>
@@ -1587,9 +1670,54 @@ function renderLineupContent(gameId) {
         </svg>
       </div>
     </div>
+
+    <!-- Fielding Rotations tracker -->
+    <div class="card" style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+        <div class="col-title" style="margin:0">✅ Fielding Rotations — who got their inning</div>
+        <span style="font-size:.72rem;color:var(--muted)">Tap each player as they complete a fielding inning</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px">
+        ${ordered.map(e=>{
+          const p = players.find(x=>x.id===e.playerId);
+          if (!p) return '';
+          const fielded = (lineup.fieldedPlayers||[]).includes(e.playerId);
+          return `<button class="fielding-toggle${fielded?' fielded':''}" data-pid="${esc(e.playerId)}"
+            style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius);border:1px solid ${fielded?'#22c55e':'var(--border)'};background:${fielded?'#dcfce7':'white'};cursor:pointer;font-size:.82rem;font-weight:${fielded?'700':'400'};color:${fielded?'#166534':'var(--text)'}">
+            <span style="font-size:1rem">${fielded?'✅':'⬜'}</span>
+            <span>${esc(dname(p))}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.75rem;color:var(--muted)">
+          ${ordered.filter(e=>(lineup.fieldedPlayers||[]).includes(e.playerId)).length} / ${ordered.length} fielded
+        </span>
+        <button class="btn btn-secondary btn-sm" id="clear-fielded-btn" style="font-size:.72rem">Clear All</button>
+      </div>
+    </div>
   `;
 
+  wireTimeline(id=>{ document.getElementById('lineup-game-sel').value=id; renderLineupContent(id); });
   initDrag(gameId, entries);
+
+  // Fielding toggle buttons
+  document.querySelectorAll('.fielding-toggle').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const pid = btn.dataset.pid;
+      const lu  = getLineup(gameId);
+      const fp  = [...(lu.fieldedPlayers||[])];
+      const idx = fp.indexOf(pid);
+      if (idx>=0) fp.splice(idx,1); else fp.push(pid);
+      saveLineup(gameId, lu.entries, lu.scratched, lu.locked, fp);
+      renderLineupContent(gameId); // re-render to update counts
+    });
+  });
+  document.getElementById('clear-fielded-btn')?.addEventListener('click', ()=>{
+    const lu = getLineup(gameId);
+    saveLineup(gameId, lu.entries, lu.scratched, lu.locked, []);
+    renderLineupContent(gameId);
+  });
 
   const addBtn = document.getElementById('add-to-order');
   if (addBtn) addBtn.addEventListener('click', ()=>{
@@ -1804,7 +1932,21 @@ function renderPlayerSeasonCards() {
   });
 }
 
-function renderStatsTab() { syncGameSelects(); renderPlayerSeasonCards(); renderStatsContent(document.getElementById('stats-game-sel').value); }
+function renderStatsTab() {
+  syncGameSelects();
+  const sel = document.getElementById('stats-game-sel');
+  // Auto-select most recent completed game if nothing chosen
+  if (!sel.value && cache.games.length) {
+    const completed = [...cache.games].filter(g=>g.result).sort((a,b)=>b.date.localeCompare(a.date));
+    if (completed.length) sel.value = completed[0].id;
+    else {
+      const best = bestGameId();
+      if (best) sel.value = best;
+    }
+  }
+  renderPlayerSeasonCards();
+  renderStatsContent(sel.value);
+}
 
 function renderStatsContent(gameId) {
   if (statsMode==='season') { renderSeasonStats(); return; }
@@ -2788,15 +2930,17 @@ function getCompEntry(gameId, playerId) {
 function autoFillCompliance(gameId) {
   const lineup  = getLineup(gameId);
   const players = cache.players.filter(p=>p.active!==false);
+  const fielded = new Set(lineup.fieldedPlayers||[]);
   players.forEach(p => {
-    const entry   = lineup.entries.find(e=>e.playerId===p.id);
-    const gotAB   = !!(entry && entry.battingOrder > 0);
-    const gotField= !!(entry && entry.fieldingPosition);
-    const rec = { id: `${gameId}_${p.id}`, gameId, playerId: p.id, gotAB, gotField };
-    fbSave('compliance', rec);
+    const entry  = lineup.entries.find(e=>e.playerId===p.id);
+    // gotAB  = player is in the batting order (everyone bats)
+    const gotAB  = !!(entry && entry.battingOrder > 0);
+    // gotField = player ticked in the fielding rotations tracker OR has a starting field position
+    const gotField = fielded.has(p.id) || !!(entry && entry.fieldingPosition);
+    fbSave('compliance', { id:`${gameId}_${p.id}`, gameId, playerId:p.id, gotAB, gotField });
   });
   toast('Auto-filled from lineup ✔');
-  setTimeout(() => renderComplianceTable(gameId), 600);
+  setTimeout(()=>renderComplianceTable(gameId), 600);
 }
 
 function saveComplianceFromTable(gameId) {
