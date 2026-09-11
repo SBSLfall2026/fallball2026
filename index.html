@@ -314,6 +314,13 @@
     .field-notes { font-size: .8rem; line-height: 1.5; color: var(--text); flex: 1; }
     .field-actions { display: flex; gap: 6px; margin-top: 10px; }
 
+    /* ── Google sign-in button ── */
+    .btn-google { background:white; color:#3c4043; border:1px solid #dadce0; display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:10px; border-radius:var(--radius); font-size:.95rem; font-weight:500; cursor:pointer; transition:background .15s; }
+    .btn-google:hover { background:#f8f8f8; }
+    .g-logo { width:18px; height:18px; flex-shrink:0; }
+    .auth-divider { display:flex; align-items:center; gap:10px; margin:14px 0; color:rgba(255,255,255,.4); font-size:.8rem; }
+    .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.2); }
+
     /* ── Activity log ── */
     .activity-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
     .activity-item:last-child { border-bottom:none; }
@@ -621,6 +628,14 @@
 
     <!-- Sign In form -->
     <div id="ca-signin-form">
+      <!-- Google sign-in (easiest for most coaches) -->
+      <button class="btn-google" id="ca-google-btn">
+        <svg class="g-logo" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Sign in with Google
+      </button>
+
+      <div class="auth-divider">or sign in with email</div>
+
       <div class="form-group" style="text-align:left"><label>Email</label>
         <input id="ca-email" type="email" placeholder="your@email.com" autocomplete="email"
           style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
@@ -691,6 +706,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
+// Handle Google redirect result on mobile (page reloads after Google sign-in)
+auth.getRedirectResult().catch(e => { if(e.code) console.warn('Redirect:', e.code); });
 
 // ── Team code ─────────────────────────────────────────────────────────────────
 let teamCode = localStorage.getItem('fb26_teamCode') || null;
@@ -3118,6 +3135,23 @@ function showCoachAuthOverlay() {
     overlay.style.display='none';
     location.reload();
   };
+  // Google sign-in (works on sign-in and create-account forms)
+  const googleSignIn = async () => {
+    document.getElementById('ca-error').textContent = '';
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      // Use redirect on mobile (more reliable), popup on desktop
+      if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+        await auth.signInWithRedirect(provider);
+      } else {
+        await auth.signInWithPopup(provider);
+      }
+      // onAuthStateChanged + checkTeamAccess handles the rest
+    } catch(e) {
+      document.getElementById('ca-error').textContent = friendlyAuthError(e.code);
+    }
+  };
+  document.getElementById('ca-google-btn').onclick = googleSignIn;
   // Sign In
   document.getElementById('ca-signin-btn').onclick = async () => {
     const email = document.getElementById('ca-email').value.trim();
