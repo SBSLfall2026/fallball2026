@@ -2097,27 +2097,25 @@ function buildPlayerGameTrend(playerId) {
 
 function renderPlayerSeasonCards() {
   const el = document.getElementById('player-season-header'); if (!el) return;
-  const players = cache.players.filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular'));
+  const players = cache.players.filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular'))
+    .sort((a,b)=>rosterSortKey(a)-rosterSortKey(b)||(a.name||'').localeCompare(b.name||''));
   const all = cache.stats;
-  if (!all.length) { el.innerHTML=''; return; }
-
-  const selectedGame = document.getElementById('stats-game-sel')?.value;
-
+  // Always show all active players — those with no stats show "0 GP"
   const cards = players.map(p=>{
     const ps=all.filter(s=>s.playerId===p.id);
-    if (!ps.length) return '';
     const ab=sumf(ps,'ab'),b1=sumf(ps,'1b'),b2=sumf(ps,'2b'),b3=sumf(ps,'3b'),hr=sumf(ps,'hr');
     const h=b1+b2+b3+hr,bb=sumf(ps,'bb'),sb=sumf(ps,'sb'),rbi=sumf(ps,'rbi'),k=sumf(ps,'k'),kl=sumf(ps,'kl');
     const avg=ab>0?(h/ab).toFixed(3):'—';
     const obp=(ab+bb)>0?((h+bb)/(ab+bb)).toFixed(3):'—';
     const slg=ab>0?((b1+2*b2+3*b3+4*hr)/ab).toFixed(3):'—';
-    const avgCls=ab>0?(h/ab>=0.300?'avg-good':h/ab>=0.200?'avg-ok':'avg-low'):'';
-    const trend=buildPlayerGameTrend(p.id);
+    const avgCls=ab>0?(h/ab>=0.300?'avg-good':h/ab>=0.200?'avg-ok':'avg-low'):'empty';
+    const trend = ps.length>=2 ? buildPlayerGameTrend(p.id) : '';
+    const noStats = ps.length===0;
     return `
-      <div class="player-season-card${selectedGame?'':''}" data-pid="${esc(p.id)}">
+      <div class="player-season-card${noStats?' inactive':''}" data-pid="${esc(p.id)}" style="${noStats?'opacity:.55':''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">
           <div class="psc-name">${esc(dname(p))}${p.number?' <span style="color:var(--muted);font-size:.8rem">#'+p.number+'</span>':''}</div>
-          <span style="font-size:.72rem;color:var(--muted)">Click to view game ↓</span>
+          <span style="font-size:.72rem;color:var(--muted)">${noStats?'No stats yet':'Click to view game ↓'}</span>
         </div>
         <div class="psc-stats">
           <span class="psc-stat">${ps.length} GP</span>
@@ -2134,7 +2132,7 @@ function renderPlayerSeasonCards() {
       </div>`;
   }).filter(Boolean).join('');
 
-  if (!cards) { el.innerHTML=''; return; }
+  if (!players.length) { el.innerHTML=''; return; }
 
   el.innerHTML = `
     <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">⚡ Season Batting Overview — click a player to view their game stats</div>
@@ -2177,13 +2175,15 @@ function renderStatsContent(gameId) {
   const players  = cache.players;
   const allStats = cache.stats;
   const game     = cache.games.find(g=>g.id===gameId);
-  const lpEntries= [...lineup.entries].sort((a,b)=>(a.battingOrder||0)-(b.battingOrder||0));
-  const lpPlayers= lpEntries.map(e=>players.find(p=>p.id===e.playerId)).filter(Boolean);
-
-  if (!lpPlayers.length) {
-    el.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No lineup set for this game yet.</p></div>`;
-    return;
-  }
+  // Build ordered list from batting order, then append any active players not yet in the order
+  const lpEntries  = [...lineup.entries].sort((a,b)=>(a.battingOrder||0)-(b.battingOrder||0));
+  const inOrderIds = new Set(lpEntries.filter(e=>e.battingOrder>0).map(e=>e.playerId));
+  const activePlayers = cache.players.filter(p=>p.active!==false&&(!p.playerType||p.playerType==='regular'));
+  // All players: those in batting order (sorted) + any not yet added (alphabetical)
+  const lpPlayers = [
+    ...lpEntries.filter(e=>e.battingOrder>0).map(e=>players.find(p=>p.id===e.playerId)).filter(Boolean),
+    ...activePlayers.filter(p=>!inOrderIds.has(p.id)).sort((a,b)=>a.name.localeCompare(b.name)),
+  ];
 
   el.innerHTML = `
     <div class="card mb-3" style="margin-bottom:12px;padding:14px">
@@ -2219,8 +2219,12 @@ function renderStatsContent(gameId) {
             ${lpPlayers.map(p=>{
               const s=allStats.find(x=>x.gameId===gameId&&x.playerId===p.id)||{};
               const h=(parseInt(s['1b'])||0)+(parseInt(s['2b'])||0)+(parseInt(s['3b'])||0)+(parseInt(s.hr)||0);
-              return `<tr data-pid="${esc(p.id)}">
-                <td>${esc(dname(p))}</td>
+              const batNum = lpEntries.find(e=>e.playerId===p.id&&e.battingOrder>0)?.battingOrder;
+              return `<tr data-pid="${esc(p.id)}" ${!batNum?'style="opacity:.7;background:#fafafa"':''}>
+                <td>
+                  ${batNum?`<span style="color:var(--muted);font-size:.7rem;margin-right:4px">${batNum}.</span>`:'<span style="color:#ccc;font-size:.7rem;margin-right:4px" title="Not in batting order">—</span>'}
+                  ${esc(dname(p))}
+                </td>
                 ${['ab','1b','2b','3b','hr'].map(f=>`<td><input class="stat-in" data-f="${f}" value="${s[f]!==undefined&&s[f]!==''?s[f]:''}"></td>`).join('')}
                 <td class="calc" id="h-${esc(p.id)}">${h||''}</td>
                 ${['rbi','r','bb','k','kl','sb','e'].map(f=>`<td><input class="stat-in" data-f="${f}" value="${s[f]!==undefined&&s[f]!==''?s[f]:''}"></td>`).join('')}
