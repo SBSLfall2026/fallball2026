@@ -1179,6 +1179,9 @@ function openSettingsModal() {
       </label>
       <button class="btn btn-danger btn-sm" id="s-switch-team">Switch Team</button>
     </div>
+    <div style="margin-top:8px">
+      <button class="btn btn-danger btn-sm" id="s-clear-games-btn">🗑 Clear All Game Data</button>
+    </div>
     <div style="font-size:.73rem;color:var(--muted);margin-top:8px">Export saves everything to a JSON file for offline backup or sharing.</div>
     <button class="btn btn-secondary btn-sm" id="s-test-write" style="margin-top:8px">🔬 Test Firebase Write</button>
     <div id="s-test-result" style="font-size:.75rem;margin-top:4px"></div>
@@ -1209,6 +1212,7 @@ function openSettingsModal() {
     renderSettingsCoachList();
     document.getElementById('s-add-coach-btn')?.addEventListener('click', openAddCoachModal);
     document.getElementById('s-export-btn')?.addEventListener('click', exportAllData);
+    document.getElementById('s-clear-games-btn')?.addEventListener('click', clearGameData);
     document.getElementById('s-test-write')?.addEventListener('click', async () => {
       const res = document.getElementById('s-test-result');
       if (!res) return;
@@ -3015,6 +3019,37 @@ function exportAllData() {
     download: `${name}_backup_${today()}.json`,
   }).click();
   toast('Backup downloaded ✔');
+}
+
+async function clearGameData() {
+  const GAME_COLLS = ['games','lineups','stats','pitching','compliance'];
+  const toDelete = [];
+  GAME_COLLS.forEach(coll => {
+    (cache[coll] || []).forEach(item => {
+      if (item.id) toDelete.push(itemDocRef(coll, item.id));
+    });
+  });
+  if (!toDelete.length) { toast('No game data found to clear'); return; }
+  openModal('Clear All Game Data', `
+    <div style="text-align:center;padding:10px 0">
+      <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+      <div style="font-weight:600;margin-bottom:6px">Delete ${toDelete.length} records?</div>
+      <div style="font-size:.82rem;color:var(--muted)">This will permanently remove all games, lineups, stats, pitching, and compliance data. Roster is untouched.</div>
+    </div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-danger"    id="modal-submit">Yes, Clear Game Data</button>
+  `, async () => {
+    closeModal();
+    let done = 0;
+    const CHUNK = 50;
+    for (let i = 0; i < toDelete.length; i += CHUNK) {
+      await Promise.allSettled(toDelete.slice(i, i + CHUNK).map(ref => ref.delete()));
+      done += Math.min(CHUNK, toDelete.length - i);
+      toast(`Deleting… ${done}/${toDelete.length}`);
+    }
+    toast(`Game data cleared ✔ (${toDelete.length} records removed)`);
+  });
 }
 
 async function importAllData(file) {
