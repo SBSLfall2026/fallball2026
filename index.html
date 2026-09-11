@@ -857,6 +857,37 @@ function applySettings() {
   const logo = document.getElementById('app-logo');
   if (logo) logo.textContent = sport === 'Baseball' ? '⚾' : '🥎';
 }
+function openCoachViewModal(coach) {
+  const s = getSettings();
+  openModal('Team Info', `
+    <div style="text-align:center;padding:8px 0 16px">
+      <div style="font-size:1.6rem">🥎</div>
+      <div style="font-weight:700;font-size:1.1rem;margin-top:6px">${esc(s.teamName||'Team')}</div>
+      <div style="font-size:.82rem;color:var(--muted)">${esc(s.sport||'')} · ${esc(s.season||'')}</div>
+    </div>
+    <div style="background:var(--green-light);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:.82rem">
+      <div style="font-weight:600;margin-bottom:4px">Your Account</div>
+      <div>${esc(coach?.name||auth.currentUser?.displayName||'Coach')}</div>
+      <div style="color:var(--muted)">${esc(coach?.role||'Coach')} · ${esc(auth.currentUser?.email||'')}</div>
+    </div>
+    <div style="font-size:.78rem;color:var(--muted);background:#f5f5f5;border-radius:var(--radius);padding:10px">
+      <div style="font-weight:600;margin-bottom:4px">🔒 Settings are managed by the app administrator</div>
+      To request a change to the app or team settings, contact Andrew Brown.
+    </div>
+  `, `
+    <button class="btn btn-secondary" id="modal-cancel">Close</button>
+    <button class="btn btn-secondary" id="cv-chg-pass">Change My Password</button>
+    <button class="btn btn-danger"    id="cv-signout">Sign Out</button>
+  `);
+  setTimeout(() => {
+    document.getElementById('cv-signout')?.addEventListener('click',()=>{ auth.signOut(); closeModal(); location.reload(); });
+    document.getElementById('cv-chg-pass')?.addEventListener('click',()=>{
+      const email = auth.currentUser?.email;
+      if (email) auth.sendPasswordResetEmail(email).then(()=>{ closeModal(); toast(`Reset email sent to ${email}`); });
+    });
+  },0);
+}
+
 function openSettingsModal() {
   const s = getSettings();
   openModal('Team Settings & Data', `
@@ -946,7 +977,16 @@ function openSettingsModal() {
     });
   }, 0);
 }
-document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
+document.getElementById('settings-btn').addEventListener('click', () => {
+  const user  = auth.currentUser;
+  const coach = cache.coaches.find(c=>c.email===user?.email?.toLowerCase());
+  const admin = coach && (coach.isAdmin === true || coach.isAdmin === 'true');
+  if (admin) {
+    openSettingsModal();
+  } else {
+    openCoachViewModal(coach);
+  }
+});
 
 // ── Tab nav ───────────────────────────────────────────────────────────────────
 const TAB_RENDER = {
