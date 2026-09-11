@@ -1325,9 +1325,8 @@ function playerCardHTML(p) {
   return `
     <div class="card player-card${p.active===false?' inactive':''}${p.injured?' injured':''}${typeCls}" data-id="${esc(p.id)}">
       <div class="p-actions">
-        <button class="btn-icon" data-action="stats" data-id="${esc(p.id)}" title="View stats">📊</button>
-        <button class="btn-icon" data-action="edit"  data-id="${esc(p.id)}" title="Edit">✏️</button>
-        <button class="btn-icon" data-action="del"   data-id="${esc(p.id)}" title="Delete">🗑️</button>
+        <button class="btn-icon" data-action="edit" data-id="${esc(p.id)}" title="Edit">✏️</button>
+        <button class="btn-icon" data-action="del"  data-id="${esc(p.id)}" title="Delete">🗑️</button>
       </div>
       <div class="p-number${p.number&&dupNumbers.has(String(p.number))?' dup-num':''}">#${esc(p.number||'—')}${p.number&&dupNumbers.has(String(p.number))?` <span class="badge badge-dupnum" title="Duplicate jersey number — must resolve before spring season">⚠️ Dup #</span>`:''}</div>
       <div class="p-name">${esc(p.name)}${p.injured?` <span class="badge badge-injured">INJURED</span>`:''}</div>
@@ -1337,25 +1336,6 @@ function playerCardHTML(p) {
       <div class="p-positions">${(p.positions||[]).map(x=>`<span class="badge badge-pos">${esc(x)}</span>`).join('')}</div>
       ${p.playerPhone?`<div class="p-contact"><span class="p-contact-label">Player</span>${esc(p.playerPhone)}</div>`:''}
       ${p.parentPhone?`<div class="p-contact"><span class="p-contact-label">Parent</span>${esc(p.parentPhone)}</div>`:''}
-      ${(()=>{
-        const ps=cache.stats.filter(s=>s.playerId===p.id);
-        if(!ps.length) return '';
-        const ab=ps.reduce((s,x)=>s+(parseInt(x.ab)||0),0);
-        const h=ps.reduce((s,x)=>s+(parseInt(x['1b'])||0)+(parseInt(x['2b'])||0)+(parseInt(x['3b'])||0)+(parseInt(x.hr)||0),0);
-        const hr=ps.reduce((s,x)=>s+(parseInt(x.hr)||0),0);
-        const rbi=ps.reduce((s,x)=>s+(parseInt(x.rbi)||0),0);
-        const sb=ps.reduce((s,x)=>s+(parseInt(x.sb)||0),0);
-        const avg=ab>0?(h/ab).toFixed(3):'—';
-        const c=ab>0?(h/ab>=0.300?'#166534':h/ab>=0.200?'#92400e':'#991b1b'):'var(--muted)';
-        return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:5px 8px;background:var(--bg);border-radius:4px;flex-wrap:wrap">
-          <span style="font-size:.82rem;font-weight:800;color:${c}">${avg}</span>
-          <span style="font-size:.7rem;color:var(--muted)">AVG · ${ps.length} GP</span>
-          <span style="font-size:.7rem;color:var(--muted)">·</span>
-          <span style="font-size:.75rem"><strong>${hr}</strong> HR</span>
-          <span style="font-size:.75rem"><strong>${rbi}</strong> RBI</span>
-          <span style="font-size:.75rem"><strong>${sb}</strong> SB</span>
-        </div>`;
-      })()}
       <div class="mt-2" style="display:flex;gap:14px;flex-wrap:wrap">
         <label class="toggle" style="font-size:.78rem">
           <input type="checkbox" class="active-chk" data-id="${esc(p.id)}" ${p.active!==false?'checked':''}> Active
@@ -1364,6 +1344,24 @@ function playerCardHTML(p) {
           <input type="checkbox" class="injured-chk" data-id="${esc(p.id)}" ${p.injured?'checked':''}> 🤕 Injured
         </label>
       </div>
+      ${(()=>{
+        const ps=cache.stats.filter(s=>s.playerId===p.id);
+        const ab=ps.reduce((s,x)=>s+(parseInt(x.ab)||0),0);
+        const h=ps.reduce((s,x)=>s+(parseInt(x['1b'])||0)+(parseInt(x['2b'])||0)+(parseInt(x['3b'])||0)+(parseInt(x.hr)||0),0);
+        const hr=ps.reduce((s,x)=>s+(parseInt(x.hr)||0),0);
+        const rbi=ps.reduce((s,x)=>s+(parseInt(x.rbi)||0),0);
+        const sb=ps.reduce((s,x)=>s+(parseInt(x.sb)||0),0);
+        const avg=ab>0?(h/ab).toFixed(3):'—';
+        const avgColor=ab>0?(h/ab>=0.300?'#166534':h/ab>=0.200?'#92400e':'#991b1b'):'var(--muted)';
+        const label = ps.length
+          ? `<span style="font-weight:800;color:${avgColor}">${avg}</span> <span style="color:var(--muted);font-size:.7rem">AVG · ${ps.length} GP</span> &nbsp;·&nbsp; <strong>${hr}</strong> HR &nbsp;<strong>${rbi}</strong> RBI &nbsp;<strong>${sb}</strong> SB`
+          : `<span style="color:var(--muted);font-style:italic;font-size:.78rem">No stats yet</span>`;
+        return `<button class="btn btn-secondary btn-sm" data-action="stats" data-id="${esc(p.id)}"
+          style="width:100%;justify-content:space-between;margin-top:10px;font-size:.78rem;border-top:1px solid var(--border);padding-top:8px;background:none;border-left:none;border-right:none;border-bottom:none;border-radius:0;padding-left:0;padding-right:0">
+          <span style="font-size:.75rem">${label}</span>
+          <span style="color:var(--green);font-weight:600">📊 Stats →</span>
+        </button>`;
+      })()}
     </div>
   `;
 }
