@@ -2926,18 +2926,54 @@ async function importAllData(file) {
   reader.onload = async e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (!confirm(`Import backup from "${file.name}"?\nThis will ADD/OVERWRITE data in the current team. Continue?`)) return;
-      isImporting = true; // suppress history logging during bulk import
+      // Count items to import
+      let total = 0;
+      COLLS.forEach(c => { if (Array.isArray(data[c])) total += data[c].length; });
+      if (!confirm(`Import ${total} records from "${file.name}"?\nThis will overwrite matching data in your team. Continue?`)) return;
+
+      toast('Importing… please wait');
+      isImporting = true;
+
+      // Use Firestore batch writes (max 490 per batch) — much more reliable than individual writes
+      let batch  = db.batch();
+      let count  = 0;
+      let errors = 0;
+
+      const flush = async () => {
+        if (count === 0) return;
+        try { await batch.commit(); }
+        catch(err) { errors++; console.error('Batch commit failed:', err); }
+        batch = db.batch();
+        count = 0;
+      };
+
       for (const coll of COLLS) {
-        if (Array.isArray(data[coll])) {
-          for (const item of data[coll]) { if (item.id) await fbSave(coll, item); }
+        if (!Array.isArray(data[coll])) continue;
+        for (const item of data[coll]) {
+          if (!item.id) continue;
+          const { id, ...docData } = item;
+          batch.set(itemDocRef(coll, id), docData);
+          count++;
+          if (count >= 490) await flush();
         }
       }
+      await flush(); // commit final batch
+
       if (data.settings) await fbSaveSettings(data.settings);
       isImporting = false;
-      toast('Import complete — reloading…');
-      setTimeout(()=>location.reload(), 1200);
-    } catch(ex) { toast('Could not read backup file'); console.error(ex); }
+
+      if (errors > 0) {
+        toast(`Import finished with ${errors} error(s) — check console`);
+        setTimeout(()=>location.reload(), 2000);
+      } else {
+        toast('Import complete ✔ — reloading…');
+        setTimeout(()=>location.reload(), 1200);
+      }
+    } catch(ex) {
+      isImporting = false;
+      toast('Could not read backup file — check the file format');
+      console.error('Import error:', ex);
+    }
   };
   reader.readAsText(file);
 }
