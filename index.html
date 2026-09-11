@@ -2431,45 +2431,64 @@ document.getElementById('tc-input').addEventListener('keydown', e=>{ if(e.key===
 document.getElementById('tc-create-btn').addEventListener('click', openCreateTeamModal);
 
 // ── App launch (after team selected) ─────────────────────────────────────────
+let _authUser        = undefined; // undefined = not yet resolved; null = signed out
+let _coachesLoaded   = false;
+let _appInitialized  = false;
+
 function launchApp() {
   hideTeamOverlay();
   document.getElementById('team-code-display').textContent = teamCode;
-  setupListeners();
+  setupListeners(); // starts Firestore listeners including coaches
 
-  // Firebase Auth state drives access — show overlay until signed in & approved
-  auth.onAuthStateChanged(async user => {
-    if (!user) {
-      // Not signed in — show Firebase Auth sign-in overlay
-      showCoachAuthOverlay();
-      return;
-    }
+  // Show the auth overlay immediately so nothing leaks through while we wait
+  showCoachAuthOverlay();
 
-    // Signed in with Firebase — check if this email is approved for this team
-    const email = user.email?.toLowerCase();
-    const approvedCoach = cache.coaches.find(c=>c.email===email&&c.active!==false);
-
-    // If coaches list is empty (first ever user) OR this email is approved → let in
-    if (cache.coaches.length === 0 || approvedCoach) {
-      document.getElementById('coach-auth-overlay').style.display = 'none';
-      const displayName = approvedCoach?.name || user.displayName || email;
-      setCurrentUser(displayName);
-      applySettings(); seedResources(); seedFields(); seedOpponents();
-      renderRoster(); syncGameSelects(); syncPlayerSelects();
-      // Auto-add first user as head coach if no coaches exist
-      if (cache.coaches.length === 0) {
-        fbSave('coaches',{ id:genId(), name: user.displayName||email, email, role:'Head Coach', active:true, createdAt:new Date().toISOString() });
-        toast(`Welcome! You've been added as Head Coach. Add other coaches in ⚙️ Settings.`);
-        logActivity('signed_in', `First login — auto-registered as Head Coach on ${getDeviceInfo()}`);
-      } else {
-        logActivity('signed_in', `Signed in on ${getDeviceInfo()}`);
-      }
-    } else {
-      // Signed in with Firebase but not on the approved list
-      showCoachAuthOverlay();
-      showNotApproved();
-      fbSave('activity',{ id:genId(), userName:user.displayName||email, action:'access_denied', detail:`Not on approved coach list for ${teamCode}`, timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
-    }
+  // Firebase Auth resolves first — store the result
+  auth.onAuthStateChanged(user => {
+    _authUser = user; // null = signed out, User object = signed in
+    checkTeamAccess();
   });
+}
+
+// Called whenever auth state OR coaches data changes — both must be ready
+function checkTeamAccess() {
+  if (_authUser === undefined) return;  // auth not resolved yet
+  if (!_coachesLoaded)         return;  // coaches snapshot not yet received
+  if (_appInitialized)         return;  // already let in — don't re-run
+
+  const user = _authUser;
+
+  if (!user) {
+    // Not signed in — keep the sign-in overlay visible
+    showCoachAuthOverlay();
+    return;
+  }
+
+  const email = user.email?.toLowerCase();
+  const approvedCoach = cache.coaches.find(c => c.email===email && c.active!==false);
+  const isFirstEverUser = cache.coaches.length === 0;
+
+  if (isFirstEverUser || approvedCoach) {
+    // ✅ Access granted
+    _appInitialized = true;
+    document.getElementById('coach-auth-overlay').style.display = 'none';
+    const displayName = approvedCoach?.name || user.displayName || email;
+    setCurrentUser(displayName);
+    applySettings(); seedResources(); seedFields(); seedOpponents();
+    renderRoster(); syncGameSelects(); syncPlayerSelects();
+    if (isFirstEverUser) {
+      fbSave('coaches',{ id:genId(), name: user.displayName||email, email, role:'Head Coach', active:true, createdAt:new Date().toISOString() });
+      toast('Welcome! You\'ve been added as Head Coach. Add other coaches in ⚙️ Settings.');
+      logActivity('signed_in','First login — registered as Head Coach on '+getDeviceInfo());
+    } else {
+      logActivity('signed_in','Signed in on '+getDeviceInfo());
+    }
+  } else {
+    // 🚫 Signed in with Firebase but not approved for this team
+    showCoachAuthOverlay();
+    showNotApproved();
+    fbSave('activity',{ id:genId(), userName:user.displayName||email||'unknown', action:'access_denied', detail:'Not on approved coach list for '+teamCode, timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
+  }
 }
 
 // ── RULES & COMPLIANCE ───────────────────────────────────────────────────────
