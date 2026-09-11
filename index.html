@@ -136,6 +136,25 @@
     .badge-dupnum  { background: #fff3cd; color: #856404; }
     .dup-num       { color: #d97706; font-weight: 800; }
     .dup-banner    { background: #fff3cd; border: 1px solid #f59e0b; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: .82rem; color: #78350f; display: flex; gap: 8px; align-items: flex-start; }
+
+    /* ── Position side panel ── */
+    .pos-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+    .pos-btn { padding:5px 12px; border-radius:20px; border:2px solid var(--border); background:white; font-size:.8rem; font-weight:700; cursor:pointer; transition:all .15s; color:var(--muted); }
+    .pos-btn:hover { border-color:var(--green); color:var(--green); }
+    .pos-btn.active { background:var(--green); border-color:var(--green); color:white; }
+    .pos-panel { position:fixed; right:0; top:0; height:100vh; width:360px; max-width:92vw; background:white; transform:translateX(110%); transition:transform .28s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 24px rgba(0,0,0,.18); z-index:150; display:flex; flex-direction:column; }
+    .pos-panel.open { transform:translateX(0); }
+    .pos-panel-header { background:var(--green); color:white; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+    .pos-panel-header h3 { font-size:1rem; font-weight:700; }
+    .pos-panel-body { flex:1; overflow-y:auto; padding:12px; }
+    .pos-player-card { border:1px solid var(--border); border-radius:var(--radius); padding:12px; margin-bottom:10px; background:white; }
+    .pos-player-card.main-pos { border-left:3px solid var(--gold); }
+    .pos-player-card.sec-pos  { border-left:3px solid var(--green); }
+    .ppn { font-weight:700; font-size:.95rem; display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+    .pos-note-text { font-size:.82rem; color:var(--text); line-height:1.5; margin-top:6px; white-space:pre-wrap; }
+    .pos-note-empty { font-size:.78rem; color:var(--muted); font-style:italic; margin-top:4px; }
+    .pos-panel-overlay { position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:149; display:none; }
+    .pos-panel-overlay.open { display:block; }
     .player-card.callup   { border-left: 3px solid #7c3aed; }
     .player-card.combined { border-left: 3px solid #0284c7; }
     .badge-callup   { background: #ede9fe; color: #5b21b6; }
@@ -385,10 +404,24 @@
       <h2>Roster</h2>
       <label class="toggle"><input type="checkbox" id="show-inactive" checked> Show inactive</label>
     </div>
+    <!-- Position selector bar -->
+    <div class="pos-bar" id="pos-bar">
+      <span style="font-size:.78rem;font-weight:600;color:var(--muted);align-self:center;margin-right:4px">View by position:</span>
+    </div>
     <div id="staff-card" style="margin-bottom:16px"></div>
     <div id="roster-grid" class="card-grid"></div>
     <div id="borrowed-section"></div>
   </section>
+
+  <!-- Position side panel -->
+  <div class="pos-panel-overlay" id="pos-overlay"></div>
+  <div class="pos-panel" id="pos-panel">
+    <div class="pos-panel-header">
+      <h3 id="pos-panel-title">Position</h3>
+      <button class="btn-icon" id="pos-panel-close" style="color:rgba(255,255,255,.8);font-size:1.1rem">✕</button>
+    </div>
+    <div class="pos-panel-body" id="pos-panel-body"></div>
+  </div>
 
   <!-- LINEUP -->
   <section id="tab-lineup" class="tab-section">
@@ -785,6 +818,7 @@ function liveRefresh(collName) {
     schedule:  ['games','fields'],
     stats:     ['players','games','stats','lineups'],
     roster:    ['players'],
+    // Note: position panel refreshes when players change via liveRefresh → renderRoster → buildPosBar
     lineup:    ['players','games','lineups'],
     stats:     ['players','games','stats','lineups'],
     pitching:  ['players','games','pitching'],
@@ -1093,11 +1127,21 @@ function wirePlayerCard(grid) {
   }));
 }
 
+function rosterSortKey(p) {
+  // Active healthy → active injured → inactive
+  if (p.active===false) return 2;
+  if (p.injured) return 1;
+  return 0;
+}
+
 function renderRoster() {
   renderStaffCard();
+  buildPosBar();
   const allPlayers = cache.players;
   const showInact  = document.getElementById('show-inactive').checked;
-  const regular    = allPlayers.filter(p=>(!p.playerType||p.playerType==='regular')&&(showInact||p.active!==false));
+  const regular    = allPlayers
+    .filter(p=>(!p.playerType||p.playerType==='regular')&&(showInact||p.active!==false))
+    .sort((a,b)=>rosterSortKey(a)-rosterSortKey(b)||(a.name||'').localeCompare(b.name||''));
   const borrowed   = allPlayers.filter(p=>p.playerType==='callup'||p.playerType==='combined');
   const grid       = document.getElementById('roster-grid');
 
@@ -3674,6 +3718,133 @@ document.getElementById('clear-activity-btn').addEventListener('click', () => {
 
 // Hook logActivity into key app actions
 const _origFbSave = fbSave;
+
+// ── POSITION PANEL ───────────────────────────────────────────────────────────
+const FIELDING_POSITIONS = ['P','C','1B','2B','3B','SS','LF','CF','RF'];
+
+function buildPosBar() {
+  const bar = document.getElementById('pos-bar');
+  if (!bar) return;
+  // Remove old buttons except the label
+  bar.querySelectorAll('.pos-btn').forEach(b=>b.remove());
+  FIELDING_POSITIONS.forEach(pos => {
+    const btn = document.createElement('button');
+    btn.className = 'pos-btn';
+    btn.textContent = pos;
+    btn.addEventListener('click', () => {
+      bar.querySelectorAll('.pos-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      openPosPanel(pos);
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function openPosPanel(pos) {
+  const panel   = document.getElementById('pos-panel');
+  const overlay = document.getElementById('pos-overlay');
+  const title   = document.getElementById('pos-panel-title');
+  const body    = document.getElementById('pos-panel-body');
+  title.textContent = posLabel(pos);
+  body.innerHTML = buildPosPanelHTML(pos);
+  panel.classList.add('open');
+  overlay.classList.add('open');
+  // Wire edit-note buttons
+  body.querySelectorAll('.edit-pos-note').forEach(btn => {
+    btn.addEventListener('click', () => openPosNoteModal(btn.dataset.pid, btn.dataset.pos));
+  });
+}
+
+function closePosPanel() {
+  document.getElementById('pos-panel').classList.remove('open');
+  document.getElementById('pos-overlay').classList.remove('open');
+  document.querySelectorAll('.pos-btn').forEach(b=>b.classList.remove('active'));
+}
+
+document.getElementById('pos-panel-close').addEventListener('click', closePosPanel);
+document.getElementById('pos-overlay').addEventListener('click', closePosPanel);
+
+const POS_FULL = { P:'Pitcher', C:'Catcher', '1B':'First Base', '2B':'Second Base', '3B':'Third Base', SS:'Shortstop', LF:'Left Field', CF:'Center Field', RF:'Right Field' };
+function posLabel(pos) { return `${pos} — ${POS_FULL[pos]||pos}`; }
+
+function buildPosPanelHTML(pos) {
+  const players = cache.players.filter(p=>p.active!==false&&(p.positions||[]).includes(pos));
+  if (!players.length) return `<div class="empty-state" style="padding:30px 20px"><div class="icon">🧤</div><p>No active players assigned to ${pos}.</p></div>`;
+
+  // Sort: main position first, then secondary
+  const sorted = [...players].sort((a,b) => {
+    const aMain = a.mainPosition===pos ? 0 : 1;
+    const bMain = b.mainPosition===pos ? 0 : 1;
+    return aMain - bMain || a.name.localeCompare(b.name);
+  });
+
+  return sorted.map(p => {
+    const isMain = p.mainPosition === pos;
+    const note   = (p.positionNotes||{})[pos] || '';
+    const injured = p.injured ? `<span class="badge badge-injured" style="font-size:.65rem">INJURED</span>` : '';
+    return `
+      <div class="pos-player-card ${isMain?'main-pos':'sec-pos'}">
+        <div class="ppn">
+          ${esc(dname(p))}${p.number?' <span style="color:var(--muted);font-size:.8rem">#'+p.number+'</span>':''}
+          ${injured}
+          <span class="badge" style="background:${isMain?'var(--gold-light)':'var(--green-light)'};color:${isMain?'#78350f':'var(--green-dark)'};margin-left:auto">${isMain?'⭐ Main':'Secondary'}</span>
+        </div>
+        ${note
+          ? `<div class="pos-note-text">${esc(note)}</div>`
+          : `<div class="pos-note-empty">No notes yet — tap Edit to add observations.</div>`
+        }
+        <div style="margin-top:8px">
+          <button class="btn btn-secondary btn-sm edit-pos-note" data-pid="${esc(p.id)}" data-pos="${esc(pos)}" style="font-size:.75rem">
+            ${note?'Edit Note':'+ Add Note'}
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openPosNoteModal(playerId, pos) {
+  const p    = cache.players.find(x=>x.id===playerId); if(!p) return;
+  const note = (p.positionNotes||{})[pos]||'';
+  const isMain = p.mainPosition === pos;
+  openModal(`${esc(pos)} — ${esc(p.name)}`,`
+    <div class="form-group">
+      <label>Position note — observations, concerns, development tips</label>
+      <textarea id="pn-text" style="min-height:120px">${esc(note)}</textarea>
+    </div>
+    <div style="margin-top:4px">
+      <label class="toggle" style="font-size:.82rem">
+        <input type="checkbox" id="pn-main" ${isMain?'checked':''}> ⭐ This is their <strong>main position</strong>
+      </label>
+    </div>
+  `,`
+    <button class="btn btn-danger btn-sm" id="pn-clear" style="margin-right:auto">Clear Note</button>
+    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn-primary"   id="modal-submit">Save</button>
+  `,()=>{
+    const newNote = document.getElementById('pn-text').value.trim();
+    const setMain = document.getElementById('pn-main').checked;
+    const updated = {
+      ...p,
+      mainPosition: setMain ? pos : (p.mainPosition===pos ? '' : p.mainPosition),
+      positionNotes: { ...(p.positionNotes||{}), [pos]: newNote },
+    };
+    fbSave('players', updated);
+    closeModal();
+    // Refresh panel
+    document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(pos);
+    document.getElementById('pos-panel-body').querySelectorAll('.edit-pos-note').forEach(btn=>{
+      btn.addEventListener('click',()=>openPosNoteModal(btn.dataset.pid, btn.dataset.pos));
+    });
+    toast('Position note saved ✔');
+  });
+  setTimeout(()=>{
+    document.getElementById('pn-clear')?.addEventListener('click',()=>{
+      const updated = { ...p, positionNotes: { ...(p.positionNotes||{}), [pos]:'' } };
+      fbSave('players', updated); closeModal(); toast('Note cleared');
+      document.getElementById('pos-panel-body').innerHTML = buildPosPanelHTML(pos);
+    });
+  },0);
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 if (teamCode) {
