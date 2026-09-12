@@ -455,6 +455,21 @@
 
 <nav id="main-nav">
   <button class="active" data-tab="roster">Roster</button>
+<!-- Swansboro Weather Widget -->
+<div class="card mb-3" id="swansboro-weather-card" style="background: linear-gradient(135deg, var(--green-dark), var(--green)); color: white; display: flex; justify-content: space-between; align-items: center; padding: 16px;">
+  <div>
+    <h3 style="font-size: 1rem; font-weight: 700;">🌤️ Swansboro, NC Forecast</h3>
+    <p id="weather-desc" style="font-size: 0.8rem; opacity: 0.9; margin-top: 2px;">Loading live weather...</p>
+  </div>
+  <div style="display: flex; align-items: center; gap: 12px; text-align: right;">
+    <div>
+      <div id="weather-temp" style="font-size: 2rem; font-weight: 800; line-height: 1;">--°F</div>
+    </div>
+    <div id="weather-details" style="font-size: 0.78rem; opacity: 0.9;">
+      Wind: -- mph<br>Precip: --%
+    </div>
+  </div>
+</div>
   <button data-tab="lineup">Lineup</button>
   <button data-tab="stats">Stats</button>
   <button data-tab="pitching">Pitching</button>
