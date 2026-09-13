@@ -455,21 +455,6 @@
 
 <nav id="main-nav">
   <button class="active" data-tab="roster">Roster</button>
-<!-- Swansboro Weather Widget -->
-<div class="card mb-3" id="swansboro-weather-card" style="background: linear-gradient(135deg, var(--green-dark), var(--green)); color: white; display: flex; justify-content: space-between; align-items: center; padding: 16px;">
-  <div>
-    <h3 style="font-size: 1rem; font-weight: 700;">🌤️ Swansboro, NC Forecast</h3>
-    <p id="weather-desc" style="font-size: 0.8rem; opacity: 0.9; margin-top: 2px;">Loading live weather...</p>
-  </div>
-  <div style="display: flex; align-items: center; gap: 12px; text-align: right;">
-    <div>
-      <div id="weather-temp" style="font-size: 2rem; font-weight: 800; line-height: 1;">--°F</div>
-    </div>
-    <div id="weather-details" style="font-size: 0.78rem; opacity: 0.9;">
-      Wind: -- mph<br>Precip: --%
-    </div>
-  </div>
-</div>
   <button data-tab="lineup">Lineup</button>
   <button data-tab="stats">Stats</button>
   <button data-tab="pitching">Pitching</button>
@@ -761,6 +746,9 @@
     <div class="team-divider">— or —</div>
     <button class="btn btn-secondary" id="tc-create-btn" style="width:100%;justify-content:center;padding:10px 0;font-size:.95rem">Create New Team</button>
     <div class="team-error" id="tc-error"></div>
+  </div>
+  <div id="login-weather" style="margin-top:14px;color:rgba(255,255,255,.75);font-size:.82rem;text-align:center;min-height:18px">
+    🌤️ <span id="lw-text">Loading Swansboro weather…</span>
   </div>
 </div>
 
@@ -3151,7 +3139,10 @@ async function importAllData(file) {
 }
 
 // ── Team Overlay ──────────────────────────────────────────────────────────────
-function showTeamOverlay() { document.getElementById('team-overlay').classList.remove('hidden'); }
+function showTeamOverlay() {
+  document.getElementById('team-overlay').classList.remove('hidden');
+  initLoginWeather();
+}
 function hideTeamOverlay() { document.getElementById('team-overlay').classList.add('hidden'); }
 
 async function selectTeam(code) {
@@ -3788,6 +3779,7 @@ function renderFieldGrid() {
         ${f.notes?`<div class="field-notes">${esc(f.notes)}</div>`:''}
         <div class="field-actions">
           <button class="btn btn-secondary btn-sm edit-field" data-fid="${esc(f.id)}">Edit</button>
+          ${FIELD_COORDS[f.id] ? `<button class="btn btn-secondary btn-sm wx-field" data-fid="${esc(f.id)}">🌤 72h</button>` : ''}
           ${f.address?`<a href="https://maps.google.com/?q=${encodeURIComponent(f.address)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Directions ↗</a>`:''}
           <button class="btn btn-danger btn-sm del-field" data-fid="${esc(f.id)}">✕</button>
         </div>
@@ -3797,6 +3789,7 @@ function renderFieldGrid() {
 
   el.querySelectorAll('.edit-field').forEach(b=>b.addEventListener('click', e=>{ e.stopPropagation(); openFieldModal(b.dataset.fid); }));
   el.querySelectorAll('.del-field').forEach(b=>b.addEventListener('click', e=>{ e.stopPropagation(); deleteField(b.dataset.fid); }));
+  el.querySelectorAll('.wx-field').forEach(b=>b.addEventListener('click', e=>{ e.stopPropagation(); openFieldWeatherModal(b.dataset.fid); }));
   // Click card to view full image
   el.querySelectorAll('.field-card').forEach(card=>card.addEventListener('click', ()=>viewField(card.dataset.fid)));
 }
@@ -5041,6 +5034,134 @@ function importScoutCSV(opponentId) {
     reader.readAsText(file);
   });
   input.click();
+}
+
+// ── Weather ───────────────────────────────────────────────────────────────────
+const FIELD_COORDS = {
+  'field-swansboro':   { lat: 34.6897, lon: -77.1197 },
+  'field-downeast':    { lat: 34.7657, lon: -76.5574 },
+  'field-newport':     { lat: 34.7859, lon: -76.8540 },
+  'field-havelock':    { lat: 34.8793, lon: -76.9036 },
+  'field-pamlico':     { lat: 35.1411, lon: -76.7780 },
+  'field-westernpark': { lat: 34.6979, lon: -77.0654 },
+};
+
+function wmoIcon(code) {
+  if (code === 0)          return '☀️';
+  if (code <= 2)           return '⛅';
+  if (code <= 3)           return '☁️';
+  if (code <= 49)          return '🌫️';
+  if (code <= 57)          return '🌧️';
+  if (code <= 67)          return '🌧️';
+  if (code <= 77)          return '❄️';
+  if (code <= 82)          return '🌦️';
+  if (code <= 86)          return '🌨️';
+  return '⛈️';
+}
+
+function wmoDesc(code) {
+  if (code === 0)          return 'Clear';
+  if (code <= 2)           return 'Partly cloudy';
+  if (code <= 3)           return 'Cloudy';
+  if (code <= 49)          return 'Foggy';
+  if (code <= 59)          return 'Drizzle';
+  if (code <= 67)          return 'Rain';
+  if (code <= 77)          return 'Snow';
+  if (code <= 82)          return 'Rain showers';
+  if (code <= 86)          return 'Snow showers';
+  return 'Thunderstorms';
+}
+
+async function initLoginWeather() {
+  const el = document.getElementById('lw-text');
+  if (!el) return;
+  try {
+    const { lat, lon } = FIELD_COORDS['field-swansboro'];
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&current=temperature_2m,weather_code,wind_speed_10m,precipitation_probability` +
+      `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FNew_York`;
+    const res = await fetch(url);
+    const d = await res.json();
+    const c = d.current;
+    const temp  = Math.round(c.temperature_2m);
+    const wind  = Math.round(c.wind_speed_10m);
+    const precip = c.precipitation_probability ?? 0;
+    const icon  = wmoIcon(c.weather_code);
+    const desc  = wmoDesc(c.weather_code);
+    el.closest('#login-weather').innerHTML =
+      `${icon} Swansboro: <strong>${temp}°F</strong> · ${desc} · Wind ${wind} mph · Precip ${precip}%`;
+  } catch(e) {
+    const el2 = document.getElementById('lw-text');
+    if (el2) el2.textContent = 'Weather unavailable';
+  }
+}
+
+async function openFieldWeatherModal(fieldId) {
+  const f = cache.fields.find(x => x.id === fieldId);
+  const coords = FIELD_COORDS[fieldId];
+  if (!f || !coords) return;
+
+  openModal(`🌤 72h Forecast — ${f.name}`,
+    `<div id="wx-modal-body" style="text-align:center;padding:20px;color:var(--muted)">Loading forecast…</div>`,
+    `<button class="btn btn-secondary" id="modal-cancel">Close</button>`
+  );
+
+  try {
+    const { lat, lon } = coords;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m` +
+      `&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=3` +
+      `&timezone=America%2FNew_York`;
+    const res = await fetch(url);
+    const d = await res.json();
+    const hours = d.hourly.time;
+    const temps  = d.hourly.temperature_2m;
+    const codes  = d.hourly.weather_code;
+    const precips = d.hourly.precipitation_probability;
+    const winds  = d.hourly.wind_speed_10m;
+
+    // Group by day, show every 3 hours
+    const days = {};
+    hours.forEach((t, i) => {
+      if (i % 3 !== 0) return;
+      const dt   = new Date(t);
+      const dKey = dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      const hr   = dt.getHours();
+      const ampm = hr < 12 ? (hr === 0 ? '12am' : `${hr}am`) : (hr === 12 ? '12pm' : `${hr-12}pm`);
+      if (!days[dKey]) days[dKey] = [];
+      days[dKey].push({
+        time: ampm,
+        temp: Math.round(temps[i]),
+        icon: wmoIcon(codes[i]),
+        desc: wmoDesc(codes[i]),
+        precip: precips[i] ?? 0,
+        wind: Math.round(winds[i]),
+      });
+    });
+
+    let html = '';
+    for (const [day, rows] of Object.entries(days)) {
+      html += `<div style="font-size:.78rem;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px">${day}</div>`;
+      html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px">`;
+      rows.forEach(r => {
+        const hot = r.precip >= 40;
+        html += `<div style="background:${hot?'#fef3c7':'var(--green-light)'};border-radius:6px;padding:7px 6px;text-align:center;font-size:.78rem">
+          <div style="font-weight:600;color:var(--muted)">${r.time}</div>
+          <div style="font-size:1.3rem;margin:3px 0">${r.icon}</div>
+          <div style="font-weight:700;font-size:.9rem">${r.temp}°F</div>
+          <div style="color:${hot?'#92400e':'var(--muted)'};font-size:.72rem">${r.precip}% 💧</div>
+          <div style="color:var(--muted);font-size:.7rem">${r.wind} mph</div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    const body = document.getElementById('wx-modal-body');
+    if (body) body.innerHTML = html;
+  } catch(e) {
+    const body = document.getElementById('wx-modal-body');
+    if (body) body.innerHTML = `<div style="color:var(--red);padding:20px">Could not load forecast. Check internet connection.</div>`;
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
