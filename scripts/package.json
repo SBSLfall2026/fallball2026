@@ -1,0 +1,11 @@
+{
+  "name": "fallball-backup",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "backup": "node backup-firestore.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
