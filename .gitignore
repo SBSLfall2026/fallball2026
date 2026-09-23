@@ -1,0 +1,4 @@
+node_modules/
+*-debug.log
+backups/*.json
+*-roster-private.json

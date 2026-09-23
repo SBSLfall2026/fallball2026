@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function member(team) {
+      return signedIn()
+        && get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.role in ['coach', 'admin'];
+    }
+    function admin(team) {
+      return member(team)
+        && get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+    match /teams/{team} {
+      allow get: if member(team);
+      allow update: if admin(team);
+      match /members/{uid} {
+        allow get: if signedIn() && request.auth.uid == uid;
+        // Provision and revoke through the trusted console/Admin SDK only.
+      }
+      match /coaches/{id} {
+        allow read: if member(team);
+        allow write: if admin(team);
+      }
+      match /_test/{id} {
+        allow read, write: if admin(team);
+      }
+      match /{collection}/{id} {
+        allow read, write: if member(team)
+          && collection in [
+            'players', 'games', 'lineups', 'stats', 'notes', 'resources',
+            'pitching', 'compliance', 'fields', 'opponents', 'activity',
+            'batteries', 'chat', 'history', 'scouting'
+          ];
+      }
+    }
+  }
+}
