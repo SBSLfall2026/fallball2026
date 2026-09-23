@@ -8,7 +8,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="access-session.js"></script>
   <style>
     :root {
       --green:       #2d6a2d;
@@ -737,14 +737,14 @@
   <div class="team-card">
     <div style="font-size:2.8rem;margin-bottom:10px">🥎</div>
     <h2>FallBall Team Manager</h2>
-    <p>Enter your team code to join your team, or create a new one.<br>Share the code with your coaches so everyone stays in sync.</p>
+    <p>Enter your team code, then sign in with your approved coach account.<br>Your administrator must approve your account before you can access team data.</p>
     <div class="form-group" style="text-align:left">
       <label>Team Code</label>
       <input id="tc-input" placeholder="e.g. SWB-SOFTBALL" style="text-transform:uppercase;font-weight:600;letter-spacing:.05em;font-size:1rem;text-align:center">
     </div>
     <button class="btn btn-primary" id="tc-join-btn" style="width:100%;justify-content:center;padding:10px 0;font-size:.95rem">Join Team</button>
     <div class="team-divider">— or —</div>
-    <button class="btn btn-secondary" id="tc-create-btn" style="width:100%;justify-content:center;padding:10px 0;font-size:.95rem">Create New Team</button>
+    <button class="btn btn-secondary" id="tc-create-btn" style="width:100%;justify-content:center;padding:10px 0;font-size:.95rem">Team setup help</button>
     <div class="team-error" id="tc-error"></div>
   </div>
   <div id="login-weather" style="margin-top:14px;color:rgba(255,255,255,.75);font-size:.82rem;text-align:center;min-height:18px">
@@ -935,10 +935,12 @@ async function fbSaveSettings(settings) {
 // ── Real-time listeners (compat API) ─────────────────────────────────────────
 const unsubs = [];
 function setupListeners() {
+  const generation = _listenerGeneration;
   COLLS.forEach(name => {
     const unsub = db.collection('teams').doc(teamCode).collection(name)
       .onSnapshot(
         snap => {
+          if (generation !== _listenerGeneration || !_appInitialized) return;
           cache[name] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           liveRefresh(name);
           // Seed defaults only after Firestore confirms collection empty
@@ -946,17 +948,17 @@ function setupListeners() {
           if (name === 'resources' && cache.resources.length === 0) seedResources();
           if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
           if (name === 'coaches') {
-            _coachesLoaded = true;   // unblock checkTeamAccess
             renderSettingsCoachList();
-            checkTeamAccess();       // re-run now that coaches data is available
           }
+          privateSnapshotReady(name);
         },
-        err => console.warn('Listener error:', name, err)
+        err => { if (generation === _listenerGeneration) handlePrivateListenerError(err); }
       );
     unsubs.push(unsub);
   });
   // Settings listener (team document itself)
   const unsub = teamDocRef().onSnapshot(snap => {
+    if (generation !== _listenerGeneration || !_appInitialized) return;
     if (snap.exists) {
       const { teamName, sport, coachName, coachContact, season,
               asst1Name, asst1Contact, asst2Name, asst2Contact,
@@ -966,8 +968,11 @@ function setupListeners() {
                          asst3Name, asst3Contact, leagueRules, adminPin };
       applySettings();
       renderStaffCard();
+      privateSnapshotReady('settings');
+    } else {
+      handlePrivateListenerError({ code: 'permission-denied' });
     }
-  }, err => console.warn('Settings listener error:', err));
+  }, err => { if (generation === _listenerGeneration) handlePrivateListenerError(err); });
   unsubs.push(unsub);
 }
 
@@ -1123,7 +1128,7 @@ function openCoachViewModal(coach) {
     <button class="btn btn-danger"    id="cv-signout">Sign Out</button>
   `);
   setTimeout(() => {
-    document.getElementById('cv-signout')?.addEventListener('click',()=>{ auth.signOut(); closeModal(); location.reload(); });
+    document.getElementById('cv-signout')?.addEventListener('click',()=>{ accessSession.reset(); auth.signOut().then(() => location.reload()); });
     document.getElementById('cv-chg-pass')?.addEventListener('click',()=>{
       const email = auth.currentUser?.email;
       if (email) auth.sendPasswordResetEmail(email).then(()=>{ closeModal(); toast(`Reset email sent to ${email}`); });
@@ -1247,15 +1252,16 @@ function openSettingsModal() {
     });
     document.getElementById('s-switch-team')?.addEventListener('click', () => {
       if (!confirm('Switch to a different team? Your current team data stays in the cloud.')) return;
+      accessSession.reset();
       localStorage.removeItem('fb26_teamCode');
-      closeModal(); location.reload();
+      location.reload();
     });
   }, 0);
 }
 document.getElementById('settings-btn').addEventListener('click', () => {
   const user  = auth.currentUser;
   const coach = cache.coaches.find(c=>c.email===user?.email?.toLowerCase());
-  const admin = coach && (coach.isAdmin === true || coach.isAdmin === 'true');
+  const admin = _membership?.role === 'admin';
   if (admin) {
     openSettingsModal();
   } else {
@@ -3146,71 +3152,18 @@ function showTeamOverlay() {
 function hideTeamOverlay() { document.getElementById('team-overlay').classList.add('hidden'); }
 
 async function selectTeam(code) {
-  const normalized = code.trim().toUpperCase().replace(/\s+/g,'-');
-  if (!normalized) { document.getElementById('tc-error').textContent='Enter a team code'; return; }
-  try {
-    const snap = await db.collection('teams').doc(normalized).get();
-    if (snap.exists) {
-      teamCode = normalized;
-      localStorage.setItem('fb26_teamCode', teamCode);
-      launchApp();
-    } else {
-      document.getElementById('tc-error').textContent = `Team "${normalized}" not found. Check the code or create a new team.`;
-    }
-  } catch(e) {
-    document.getElementById('tc-error').textContent = 'Connection error — check internet and try again.';
-    console.error(e);
+  const normalized = code.trim().toUpperCase().replace(/\s+/g, '-');
+  if (!/^[A-Z0-9-]{1,64}$/.test(normalized)) {
+    document.getElementById('tc-error').textContent = 'Enter a valid team code (letters, numbers, and hyphens).';
+    return;
   }
+  teamCode = normalized;
+  localStorage.setItem('fb26_teamCode', teamCode);
+  launchApp(); // Team codes select a team; they never authorize a database read.
 }
 
 function openCreateTeamModal() {
-  openModal('Create New Team',`
-    <div class="form-group"><label>Team Name *</label><input id="ct-name" placeholder="e.g. Swansboro"></div>
-    <div class="form-group"><label>Sport</label>
-      <select id="ct-sport">
-        <option value="Fastpitch Softball">Fastpitch Softball</option>
-        <option value="Baseball">Baseball</option>
-        <option value="Slow Pitch Softball">Slow Pitch Softball</option>
-      </select></div>
-    <div class="form-group"><label>Head Coach / Manager</label><input id="ct-coach" placeholder="Your name"></div>
-    <div class="form-group"><label>Season</label><input id="ct-season" placeholder="e.g. Fall 2026"></div>
-    <div class="form-group"><label>Team Code (coaches use this to join)</label>
-      <input id="ct-code" placeholder="e.g. SWB-SOFTBALL" style="text-transform:uppercase;font-weight:600;letter-spacing:.04em">
-      <div style="font-size:.75rem;color:var(--muted);margin-top:3px">Letters, numbers, and hyphens only. Share this with your coaches.</div>
-    </div>
-  `,`
-    <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
-    <button class="btn btn-primary"   id="modal-submit">Create Team</button>
-  `, async ()=>{
-    const name  = document.getElementById('ct-name').value.trim();
-    const code  = document.getElementById('ct-code').value.trim().toUpperCase().replace(/[^A-Z0-9-]/g,'');
-    if (!name||!code) { toast('Team name and code are required'); return; }
-    try {
-      const existing = await db.collection('teams').doc(code).get();
-      if (existing.exists) { toast(`Code "${code}" is already taken — try another`); return; }
-      await db.collection('teams').doc(code).set({
-        teamName:  name,
-        sport:     document.getElementById('ct-sport').value,
-        coachName: document.getElementById('ct-coach').value.trim(),
-        season:    document.getElementById('ct-season').value.trim(),
-        createdAt: new Date().toISOString(),
-      });
-      teamCode = code;
-      localStorage.setItem('fb26_teamCode', teamCode);
-      closeModal(); launchApp();
-    } catch(e) { toast('Error creating team — check connection'); console.error(e); }
-  });
-  // Auto-suggest code from name
-  setTimeout(()=>{
-    const nameIn=document.getElementById('ct-name');
-    const codeIn=document.getElementById('ct-code');
-    nameIn?.addEventListener('input',()=>{
-      if (!codeIn.dataset.manual) {
-        codeIn.value=nameIn.value.trim().toUpperCase().replace(/\s+/g,'-').replace(/[^A-Z0-9-]/g,'').slice(0,20);
-      }
-    });
-    codeIn?.addEventListener('input',()=>{ codeIn.dataset.manual='1'; });
-  },0);
+  toast('Contact the team administrator to create a team and approve coach access.');
 }
 
 document.getElementById('tc-join-btn').addEventListener('click', ()=>selectTeam(document.getElementById('tc-input').value));
@@ -3218,64 +3171,82 @@ document.getElementById('tc-input').addEventListener('keydown', e=>{ if(e.key===
 document.getElementById('tc-create-btn').addEventListener('click', openCreateTeamModal);
 
 // ── App launch (after team selected) ─────────────────────────────────────────
-let _authUser        = undefined; // undefined = not yet resolved; null = signed out
-let _coachesLoaded   = false;
-let _appInitialized  = false;
+let _authUser = undefined;
+let _appInitialized = false;
+let _membership = null;
+let _authUnsubscribe = null;
+let _listenerGeneration = 0;
+let _privateDataStarted = false;
+let _reloadRequired = false;
+const _loadedCollections = new Set();
+
+function resetPrivateSession() {
+  _listenerGeneration++;
+  unsubs.splice(0).forEach(unsub => unsub());
+  _appInitialized = false;
+  _membership = null;
+  _loadedCollections.clear();
+  COLLS.forEach(name => { cache[name] = []; });
+  cache.settings = {};
+  if (_privateDataStarted) {
+    // Purge rendered private data as well as the in-memory cache.
+    document.querySelectorAll('main, header, nav, #fab, #chat-fab, #chat-drawer, #modal-overlay, #pos-panel')
+      .forEach(element => element.replaceChildren());
+    _privateDataStarted = false;
+    _reloadRequired = true;
+  }
+}
+
+function showAccessError(code) {
+  showCoachAuthOverlay();
+  if (code === 'signed-out') return;
+  if (code === 'permission-denied') showNotApproved();
+  const messages = {
+    'permission-denied': 'Your account is not approved for this team. Contact the team administrator.',
+    'unavailable': 'Cannot verify team access while offline. Reconnect and reload to try again.',
+    'membership-changed': 'Your team permissions changed. Reload to continue.',
+  };
+  document.getElementById('ca-error').textContent = messages[code] || 'Could not verify team access. Reload to retry, or contact the administrator.';
+}
+
+const accessSession = createAccessSession({
+  watchMembership: (team, uid, next, error) => db.collection('teams').doc(team)
+    .collection('members').doc(uid).onSnapshot({ includeMetadataChanges: true }, next, error),
+  loadTeam: team => db.collection('teams').doc(team).get({ source: 'server' }),
+  onReset: resetPrivateSession,
+  onBlocked: showAccessError,
+  onAllowed: (user, membership) => {
+    if (_reloadRequired) { location.reload(); return; }
+    _membership = membership;
+    _appInitialized = true;
+    _privateDataStarted = true;
+    setCurrentUser(user.displayName || user.email || 'Coach');
+    setupListeners();
+  },
+});
+
+function privateSnapshotReady(name) {
+  _loadedCollections.add(name);
+  if (_loadedCollections.size !== COLLS.length + 1) return;
+  document.getElementById('coach-auth-overlay').style.display = 'none';
+}
+
+function handlePrivateListenerError(error) {
+  accessSession.reset();
+  showAccessError(error.code || 'unknown');
+}
 
 function launchApp() {
   hideTeamOverlay();
   document.getElementById('team-code-display').textContent = teamCode;
-  setupListeners(); // starts Firestore listeners including coaches
-
-  // Show the auth overlay immediately so nothing leaks through while we wait
   showCoachAuthOverlay();
-
-  // Firebase Auth resolves first — store the result
-  auth.onAuthStateChanged(user => {
-    _authUser = user; // null = signed out, User object = signed in
-    checkTeamAccess();
-  });
-}
-
-// Called whenever auth state OR coaches data changes — both must be ready
-function checkTeamAccess() {
-  if (_authUser === undefined) return;  // auth not resolved yet
-  if (!_coachesLoaded)         return;  // coaches snapshot not yet received
-  if (_appInitialized)         return;  // already let in — don't re-run
-
-  const user = _authUser;
-
-  if (!user) {
-    // Not signed in — keep the sign-in overlay visible
-    showCoachAuthOverlay();
-    return;
-  }
-
-  const email = user.email?.toLowerCase();
-  const approvedCoach = cache.coaches.find(c => c.email===email && c.active!==false);
-  const isFirstEverUser = cache.coaches.length === 0;
-
-  if (isFirstEverUser || approvedCoach) {
-    // ✅ Access granted
-    _appInitialized = true;
-    document.getElementById('coach-auth-overlay').style.display = 'none';
-    const displayName = approvedCoach?.name || user.displayName || email;
-    setCurrentUser(displayName);
-    applySettings(); seedResources(); seedOpponents();
-    updateNotesBadge(); updateChatBadge();
-    renderRoster(); syncGameSelects(); syncPlayerSelects();
-    if (isFirstEverUser) {
-      fbSave('coaches',{ id:genId(), name: user.displayName||email, email, role:'Head Coach', active:true, createdAt:new Date().toISOString() });
-      toast('Welcome! You\'ve been added as Head Coach. Add other coaches in ⚙️ Settings.');
-      logActivity('signed_in','First login — registered as Head Coach on '+getDeviceInfo());
-    } else {
-      logActivity('signed_in','Signed in on '+getDeviceInfo());
-    }
+  if (!_authUnsubscribe) {
+    _authUnsubscribe = auth.onAuthStateChanged(user => {
+      _authUser = user;
+      accessSession.start(user, teamCode);
+    });
   } else {
-    // 🚫 Signed in with Firebase but not approved for this team
-    showCoachAuthOverlay();
-    showNotApproved();
-    fbSave('activity',{ id:genId(), userName:user.displayName||email||'unknown', action:'access_denied', detail:'Not on approved coach list for '+teamCode, timestamp:new Date().toISOString(), device:getDeviceInfo(), teamCode });
+    accessSession.start(_authUser, teamCode);
   }
 }
 
@@ -3970,14 +3941,14 @@ function renderSettingsCoachList() {
     });
   }));
   el.querySelectorAll('[data-action="del-coach"]').forEach(b=>b.addEventListener('click',()=>{
-    if(!confirm(`Remove ${cache.coaches.find(c=>c.id===b.dataset.cid)?.name}? They will lose access immediately.`)) return;
+    if(!confirm('Remove this coach profile? To revoke access, the Firebase administrator must also disable their membership.')) return;
     fbDelete('coaches',b.dataset.cid); renderSettingsCoachList(); toast('Coach removed');
   }));
 }
 
 function openAddCoachModal() {
   openModal('Add Coach Access', `
-    <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px">The coach must create their own account first using the app's sign-in screen, then you approve them here.</div>
+    <div style="font-size:.82rem;color:var(--muted);margin-bottom:14px">This edits coach profiles only. A Firebase administrator must approve or revoke access in the team membership list using the coach account UID.</div>
     <div class="form-group"><label>Full Name *</label><input id="nc-name" placeholder="e.g. John Smith"></div>
     <div class="form-group"><label>Email Address * <span style="font-size:.72rem">(must match what they used to create their account)</span></label>
       <input id="nc-email" type="email" placeholder="coach@email.com"></div>
@@ -4015,12 +3986,11 @@ function showCoachAuthOverlay() {
   document.getElementById('ca-show-signin').onclick    = showSignInForm;
   document.getElementById('ca-show-reset').onclick     = showResetForm;
   document.getElementById('ca-reset-back').onclick     = showSignInForm;
-  document.getElementById('ca-signout-noauth').onclick = () => { auth.signOut(); overlay.style.display='none'; location.reload(); };
+  document.getElementById('ca-signout-noauth').onclick = () => { accessSession.reset(); auth.signOut().then(() => location.reload()); };
   document.getElementById('ca-switch-team').onclick    = () => {
-    auth.signOut();
+    accessSession.reset();
     localStorage.removeItem('fb26_teamCode');
-    overlay.style.display='none';
-    location.reload();
+    auth.signOut().then(() => location.reload());
   };
   // Google sign-in (works on sign-in and create-account forms)
   const googleSignIn = async () => {
@@ -4030,7 +4000,7 @@ function showCoachAuthOverlay() {
       const provider = new firebase.auth.GoogleAuthProvider();
       // Use popup on all devices — modern mobile browsers handle it fine
       await auth.signInWithPopup(provider);
-      // onAuthStateChanged + checkTeamAccess handles the rest
+      // onAuthStateChanged + the membership observer handles the rest
     } catch(e) {
       if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
         // Popup was blocked — fall back to redirect
@@ -4150,7 +4120,7 @@ function friendlyAuthError(code) {
 }
 
 function isCoachVerified() {
-  return auth.currentUser !== null;
+  return _appInitialized && _membership?.active === true;
 }
 
 // User pill → account options
@@ -4173,7 +4143,7 @@ document.getElementById('user-pill').addEventListener('click', () => {
   `);
   setTimeout(() => {
     document.getElementById('acc-signout')?.addEventListener('click',()=>{
-      auth.signOut(); closeModal(); location.reload();
+      accessSession.reset(); auth.signOut().then(() => location.reload());
     });
     document.getElementById('acc-chg-pass')?.addEventListener('click',()=>{
       if (user.email) {
@@ -5173,3 +5143,4 @@ if (teamCode) {
 </script>
 </body>
 </html>
+
