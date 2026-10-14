@@ -1,8 +1,8 @@
 {
-  "name": "fallball-access-tests",
+  "name": "independent-coaching-platform",
   "private": true,
   "scripts": {
-    "test": "node --test tests/access-session.test.cjs",
+    "test": "node --test tests/access-session.test.cjs tests/scorekeeping.test.cjs tests/scorekeeping-storage.test.cjs tests/team-neutrality.test.cjs",
     "test:rules": "firebase emulators:exec --project demo-fallball --only firestore \"node --test tests/firestore.rules.test.cjs\""
   },
   "devDependencies": {

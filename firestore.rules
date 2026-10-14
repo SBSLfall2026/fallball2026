@@ -14,6 +14,46 @@ service cloud.firestore {
       return member(team)
         && get(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid)).data.role == 'admin';
     }
+    function validScore(s) {
+      return s.keys().hasAll(['revision', 'inning', 'half', 'outs', 'homeScore', 'awayScore', 'reviewedRevision'])
+        && s.keys().hasOnly(['revision', 'inning', 'half', 'outs', 'homeScore', 'awayScore', 'reviewedRevision'])
+        && s.revision is int && s.revision > 0
+        && s.inning is int && s.inning >= 1 && s.inning <= 99
+        && s.half in ['top', 'bottom']
+        && s.outs is int && s.outs >= 0 && s.outs <= 3
+        && s.homeScore is int && s.homeScore >= 0 && s.homeScore <= 999
+        && s.awayScore is int && s.awayScore >= 0 && s.awayScore <= 999
+        && (s.reviewedRevision == null || s.reviewedRevision == s.revision);
+    }
+    function initialScore() {
+      return {'revision': 0, 'inning': 1, 'half': 'top', 'outs': 0, 'homeScore': 0, 'awayScore': 0, 'reviewedRevision': null};
+    }
+    function validTransition(before, after, op) {
+      return op.keys().hasAll(['kind', 'reason']) && op.keys().hasOnly(['kind', 'reason', 'scoreboard'])
+        && op.reason is string && op.reason.size() <= 500
+        && after.revision == before.revision + 1
+        && (
+          (op.kind == 'correction' && op.reason.size() > 0 && after.reviewedRevision == null
+            && op.scoreboard.keys().hasAll(['inning', 'half', 'outs', 'homeScore', 'awayScore'])
+            && op.scoreboard.keys().hasOnly(['inning', 'half', 'outs', 'homeScore', 'awayScore'])
+            && after.inning == op.scoreboard.inning && after.half == op.scoreboard.half
+            && after.outs == op.scoreboard.outs && after.homeScore == op.scoreboard.homeScore && after.awayScore == op.scoreboard.awayScore)
+          || (op.kind == 'review' && before.revision > 0 && after.reviewedRevision == after.revision
+            && after.diff(before).affectedKeys().hasOnly(['revision', 'reviewedRevision']))
+          || (op.kind == 'out' && before.outs < 3 && after.outs == before.outs + 1 && after.reviewedRevision == null
+            && after.diff(before).affectedKeys().hasOnly(['revision', 'reviewedRevision', 'outs']))
+          || (op.kind == 'run' && before.outs < 3 && after.reviewedRevision == null
+            && ((before.half == 'top' && after.awayScore == before.awayScore + 1
+                && after.diff(before).affectedKeys().hasOnly(['revision', 'reviewedRevision', 'awayScore']))
+              || (before.half == 'bottom' && after.homeScore == before.homeScore + 1
+                && after.diff(before).affectedKeys().hasOnly(['revision', 'reviewedRevision', 'homeScore']))))
+          || (op.kind == 'next-half' && (before.outs == 3 || op.reason.size() > 0)
+            && after.reviewedRevision == null && after.outs == 0
+            && after.half == (before.half == 'top' ? 'bottom' : 'top')
+            && after.inning == before.inning + (before.half == 'bottom' ? 1 : 0)
+            && after.homeScore == before.homeScore && after.awayScore == before.awayScore)
+        );
+    }
     match /teams/{team} {
       allow get: if member(team);
       allow update: if admin(team);
@@ -27,6 +67,35 @@ service cloud.firestore {
       }
       match /_test/{id} {
         allow read, write: if admin(team);
+      }
+      match /scoreboards/{game} {
+        function validScoreWrite() {
+          let next = request.resource.data;
+          let gamePath = /databases/$(database)/documents/teams/$(team)/games/$(game);
+          let eventPath = /databases/$(database)/documents/teams/$(team)/scoreboards/$(game)/events/$(next.lastEventId);
+          let event = getAfter(eventPath).data;
+          let before = exists(/databases/$(database)/documents/teams/$(team)/scoreboards/$(game)) ? resource.data.scoreboard : initialScore();
+          return next.keys().hasAll(['scoreboard', 'seasonId', 'lastEventId', 'updatedBy', 'updatedAt'])
+            && next.keys().hasOnly(['scoreboard', 'seasonId', 'lastEventId', 'updatedBy', 'updatedAt'])
+            && exists(gamePath) && next.seasonId is string && next.seasonId.size() <= 200
+            && (before.revision == 0 ? next.seasonId == get(gamePath).data.get('seasonId', 'unassigned') : next.seasonId == resource.data.seasonId)
+            && next.updatedBy == request.auth.uid && next.updatedAt == request.time
+            && !exists(eventPath) && event.actorUid == request.auth.uid && event.timestamp == request.time
+            && event.previousRevision == before.revision && event.scoreboard == next.scoreboard
+            && validScore(next.scoreboard) && validTransition(before, next.scoreboard, event.operation);
+        }
+        allow read: if member(team);
+        allow create, update: if member(team) && validScoreWrite();
+        // State cannot be removed or rewritten without a new immutable event.
+        match /events/{eventId} {
+          allow read: if member(team);
+          allow create: if member(team)
+            && request.resource.data.keys().hasAll(['actorUid', 'previousRevision', 'operation', 'scoreboard', 'timestamp'])
+            && request.resource.data.keys().hasOnly(['actorUid', 'previousRevision', 'operation', 'scoreboard', 'timestamp'])
+            && request.resource.data.actorUid == request.auth.uid && request.resource.data.timestamp == request.time
+            && getAfter(/databases/$(database)/documents/teams/$(team)/scoreboards/$(game)).data.lastEventId == eventId
+            && getAfter(/databases/$(database)/documents/teams/$(team)/scoreboards/$(game)).data.scoreboard == request.resource.data.scoreboard;
+        }
       }
       match /{collection}/{id} {
         allow read, write: if member(team)

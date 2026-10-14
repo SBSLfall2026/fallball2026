@@ -3,12 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FallBall 2026 — Team Manager</title>
+  <title>Coaching Team Manager</title>
   <!-- Firebase compat SDKs — loaded as regular scripts, no module imports needed -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="access-session.js"></script>
+  <script src="team-settings.js"></script>
+  <script src="scorekeeping.js"></script>
+  <script src="scorekeeping-storage.js"></script>
+  <script src="scorekeeping-ui.js"></script>
   <style>
     :root {
       --green:       #2d6a2d;
@@ -443,8 +447,8 @@
 <header>
   <div class="logo" id="app-logo">🥎</div>
   <div style="flex:1">
-    <h1 id="app-title">FallBall 2026</h1>
-    <div class="tagline" id="app-tagline">Fastpitch Softball</div>
+    <h1 id="app-title">Coaching Team Manager</h1>
+    <div class="tagline" id="app-tagline">Baseball & Softball</div>
   </div>
   <div class="header-right">
     <span class="team-code-pill" id="team-code-display" title="Team code — share with coaches"></span>
@@ -456,6 +460,7 @@
 <nav id="main-nav">
   <button class="active" data-tab="roster">Roster</button>
   <button data-tab="lineup">Lineup</button>
+  <button data-tab="scorekeeping">Score Game</button>
   <button data-tab="stats">Stats</button>
   <button data-tab="pitching">Pitching</button>
   <button data-tab="notes">Notes<span class="nav-badge" id="notes-badge" style="display:none">!</span></button>
@@ -468,6 +473,7 @@
 </nav>
 
 <main>
+  <section id="tab-scorekeeping" class="tab-section"><div class="section-header"><h2>Score Game</h2></div><div id="scorekeeping-content"></div></section>
   <!-- ROSTER -->
   <section id="tab-roster" class="tab-section active">
     <div class="section-header">
@@ -584,7 +590,7 @@
       <div class="card" style="margin-top:8px;padding:12px 16px">
         <div style="font-size:.8rem;font-weight:700;color:var(--green-dark);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Opponent Difficulty — 1 to 10</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;font-size:.8rem">
-          <div style="display:flex;gap:8px;align-items:center"><span style="background:#dcfce7;color:#166534;border-radius:4px;padding:1px 8px;font-weight:700;min-width:28px;text-align:center">1</span> Sister team / Swansboro practice game</div>
+          <div style="display:flex;gap:8px;align-items:center"><span style="background:#dcfce7;color:#166534;border-radius:4px;padding:1px 8px;font-weight:700;min-width:28px;text-align:center">1</span> Practice game</div>
           <div style="display:flex;gap:8px;align-items:center"><span style="background:#dcfce7;color:#166534;border-radius:4px;padding:1px 8px;font-weight:700;min-width:28px;text-align:center">2</span> Same-league rec, weaker opponent</div>
           <div style="display:flex;gap:8px;align-items:center"><span style="background:#dcfce7;color:#166534;border-radius:4px;padding:1px 8px;font-weight:700;min-width:28px;text-align:center">3</span> Rec league, average competition</div>
           <div style="display:flex;gap:8px;align-items:center"><span style="background:#fef9c3;color:#92400e;border-radius:4px;padding:1px 8px;font-weight:700;min-width:28px;text-align:center">4</span> Competitive rec, solid team</div>
@@ -626,7 +632,7 @@
 
     <!-- League Rules -->
     <div class="card mb-3" style="margin-bottom:16px">
-      <div style="font-size:.85rem;font-weight:700;color:var(--green-dark);margin-bottom:10px">📋 SBSL League Rules</div>
+      <div style="font-size:.85rem;font-weight:700;color:var(--green-dark);margin-bottom:10px">📋 Team Rules</div>
       <textarea class="rules-textarea" id="rules-text" placeholder="Paste or type league rules here…"></textarea>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary btn-sm" id="save-rules-btn">Save Rules</button>
@@ -644,7 +650,7 @@
     <!-- Play Time Compliance -->
     <div class="card">
       <div style="font-size:.85rem;font-weight:700;color:var(--green-dark);margin-bottom:4px">⚖️ Play Time Compliance</div>
-      <div style="font-size:.78rem;color:var(--muted);margin-bottom:12px">Every player must get 1 at-bat and 1 fielding inning per game. Players who miss either are flagged to start the next game.</div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:12px">Record participation here. Optional next-game reminders are enabled by your team administrator; this is not a built-in league rule.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
         <select class="game-sel" id="comp-game-sel"><option value="">-- Select game --</option></select>
         <button class="btn btn-secondary btn-sm" id="comp-auto-btn">Auto-fill from Lineup</button>
@@ -661,7 +667,6 @@
       <h2>Fields</h2>
       <div class="flex gap-2" style="flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" id="field-band-btn">📋 Copy for Band</button>
-        <button class="btn btn-secondary btn-sm" id="field-seed-btn">↺ Load Missing</button>
         <button class="btn btn-primary btn-sm"   id="add-field-btn">+ Add Field</button>
       </div>
     </div>
@@ -736,7 +741,7 @@
 <div id="team-overlay">
   <div class="team-card">
     <div style="font-size:2.8rem;margin-bottom:10px">🥎</div>
-    <h2>FallBall Team Manager</h2>
+    <h2>Coaching Team Manager</h2>
     <p>Enter your team code, then sign in with your approved coach account.<br>Your administrator must approve your account before you can access team data.</p>
     <div class="form-group" style="text-align:left">
       <label>Team Code</label>
@@ -748,7 +753,7 @@
     <div class="team-error" id="tc-error"></div>
   </div>
   <div id="login-weather" style="margin-top:14px;color:rgba(255,255,255,.75);font-size:.82rem;text-align:center;min-height:18px">
-    🌤️ <span id="lw-text">Loading Swansboro weather…</span>
+    🌤️ <span id="lw-text">Weather uses team-selected locations</span>
   </div>
 </div>
 
@@ -785,7 +790,7 @@
     <!-- Create Account form -->
     <div id="ca-register-form" style="display:none">
       <div class="form-group" style="text-align:left"><label>Your Full Name *</label>
-        <input id="ca-reg-name" placeholder="e.g. Jessica Danison"
+        <input id="ca-reg-name" placeholder="Coach name"
           style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:.95rem"></div>
       <div class="form-group" style="text-align:left"><label>Email *</label>
         <input id="ca-reg-email" type="email" placeholder="your@email.com" autocomplete="email"
@@ -943,10 +948,7 @@ function setupListeners() {
           if (generation !== _listenerGeneration || !_appInitialized) return;
           cache[name] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           liveRefresh(name);
-          // Seed defaults only after Firestore confirms collection empty
-          if (name === 'fields') seedFields(); // seeds missing, removes duplicates
-          if (name === 'resources' && cache.resources.length === 0) seedResources();
-          if (name === 'opponents' && cache.opponents.length === 0) seedOpponents();
+          // Empty collections remain empty until the team adds its own data.
           if (name === 'coaches') {
             renderSettingsCoachList();
           }
@@ -962,10 +964,10 @@ function setupListeners() {
     if (snap.exists) {
       const { teamName, sport, coachName, coachContact, season,
               asst1Name, asst1Contact, asst2Name, asst2Contact,
-              asst3Name, asst3Contact, leagueRules, adminPin } = snap.data();
+              asst3Name, asst3Contact, leagueRules, adminPin, ageDivision, leagueName, leagueLocation, participationTracking } = snap.data();
       cache.settings = { teamName, sport, coachName, coachContact, season,
                          asst1Name, asst1Contact, asst2Name, asst2Contact,
-                         asst3Name, asst3Contact, leagueRules, adminPin };
+                         asst3Name, asst3Contact, leagueRules, adminPin, ageDivision, leagueName, leagueLocation, participationTracking };
       applySettings();
       renderStaffCard();
       privateSnapshotReady('settings');
@@ -989,6 +991,7 @@ function liveRefresh(collName) {
     notes:     ['players','notes'],
     resources: ['players','resources'],
     rules:     ['players','games','compliance'],
+    scorekeeping: ['games'],
     fields:    ['fields'],
   };
   if (!activeTab) return;
@@ -1097,8 +1100,8 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 function getSettings() { return cache.settings || {}; }
 function applySettings() {
   const s = getSettings();
-  document.getElementById('app-title').textContent   = s.teamName  || 'FallBall 2026';
-  const sport = s.sport || 'Fastpitch Softball';
+  document.getElementById('app-title').textContent   = s.teamName  || 'Coaching Team Manager';
+  const sport = s.sport || 'Baseball & Softball';
   const coach = s.coachName ? ' · ' + s.coachName : '';
   document.getElementById('app-tagline').textContent = sport + coach;
   // Sport-appropriate icon
@@ -1120,7 +1123,7 @@ function openCoachViewModal(coach) {
     </div>
     <div style="font-size:.78rem;color:var(--muted);background:#f5f5f5;border-radius:var(--radius);padding:10px">
       <div style="font-weight:600;margin-bottom:4px">🔒 Settings are managed by the app administrator</div>
-      To request a change to the app or team settings, contact Andrew Brown.
+      To request a change to the app or team settings, contact your team administrator.
     </div>
   `, `
     <button class="btn btn-secondary" id="modal-cancel">Close</button>
@@ -1140,7 +1143,7 @@ function openSettingsModal() {
   const s = getSettings();
   openModal('Team Settings & Data', `
     <div class="form-group"><label>Team Name</label>
-      <input id="s-team" value="${esc(s.teamName||'')}" placeholder="e.g. Swansboro"></div>
+      <input id="s-team" value="${esc(s.teamName||'')}" placeholder="e.g. Your team"></div>
     <div class="form-group"><label>Sport</label>
       <select id="s-sport">
         <option value="Fastpitch Softball" ${(s.sport||'Fastpitch Softball')==='Fastpitch Softball'?'selected':''}>Fastpitch Softball</option>
@@ -1149,7 +1152,7 @@ function openSettingsModal() {
       </select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="form-group" style="margin:0"><label>Head Coach / Manager</label>
-        <input id="s-coach" value="${esc(s.coachName||'')}" placeholder="e.g. Jessica Danison"></div>
+        <input id="s-coach" value="${esc(s.coachName||'')}" placeholder="Coach name"></div>
       <div class="form-group" style="margin:0"><label>Coach Phone / Email</label>
         <input id="s-coachcontact" value="${esc(s.coachContact||'')}" placeholder="Phone or email"></div>
     </div>
@@ -1162,6 +1165,10 @@ function openSettingsModal() {
           <input id="s-asst${n}contact" value="${esc(s['asst'+n+'Contact']||'')}" placeholder="Phone or email"></div>
       </div>
     `).join('')}
+    <div class="form-group"><label>Age division</label><select id="s-age"><option value="">Choose division</option>${Array.from({length:11},(_,i)=>(i+8)+'U').map(age=>`<option value="${age}" ${s.ageDivision===age?'selected':''}>${age}</option>`).join('')}</select></div>
+    <div class="form-group"><label>League name (optional)</label><input id="s-league" value="${esc(s.leagueName||'')}" placeholder="Team-entered affiliation"></div>
+    <div class="form-group"><label>League location (optional)</label><input id="s-league-location" value="${esc(s.leagueLocation||'')}" placeholder="City or area for weather planning"></div>
+    <div class="form-group"><label><input id="s-participation" type="checkbox" ${s.participationTracking===true?'checked':''}> Track one at-bat and one fielding inning with next-game reminders</label><p>This is an optional team choice. Check your own rules.</p></div>
     <div class="form-group"><label>Season</label>
       <input id="s-season" value="${esc(s.season||'')}" placeholder="e.g. Fall 2026"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -1200,6 +1207,10 @@ function openSettingsModal() {
     const newSettings = {
       teamName:     document.getElementById('s-team').value.trim(),
       sport:        document.getElementById('s-sport').value,
+      ageDivision: document.getElementById('s-age').value,
+      leagueName: document.getElementById('s-league').value.trim(),
+      leagueLocation: document.getElementById('s-league-location').value.trim(),
+      participationTracking: document.getElementById('s-participation').checked,
       coachName:    document.getElementById('s-coach').value.trim(),
       coachContact: document.getElementById('s-coachcontact').value.trim(),
       season:       document.getElementById('s-season').value.trim(),
@@ -1271,6 +1282,7 @@ document.getElementById('settings-btn').addEventListener('click', () => {
 
 // ── Tab nav ───────────────────────────────────────────────────────────────────
 const TAB_RENDER = {
+  scorekeeping: renderScorekeepingTab,
   schedule:  renderScheduleTab,
   lineup:    renderLineupTab,
   stats:     renderStatsTab,
@@ -1486,7 +1498,7 @@ function openPlayerModal(id, hintType) {
       </div>
       <div class="form-group" style="margin:0" id="home-team-row" ${defaultType==='regular'?'style="display:none"':''}>
         <label>Home Team</label>
-        <input id="p-hometeam" value="${esc(p?.homeTeam||'')}" placeholder="e.g. SBSL 12U">
+        <input id="p-hometeam" value="${esc(p?.homeTeam||'')}" placeholder="e.g. Another team 12U">
       </div>
     </div>
     <div class="form-group"><label>Jersey #</label><input id="pnum" type="number" min="0" max="99" value="${esc(p?.number??'')}" placeholder="0–99"></div>
@@ -1597,7 +1609,7 @@ function openGameModal(onSave, editGame) {
     </div>
     <div id="g-custom-loc" class="form-group" style="${g?.fieldId?'display:none':''}">
       <label>Custom Location (optional)</label>
-      <input id="gl" value="${esc(g?.location||'')}" placeholder="e.g. TBD, Swansboro Rec Park Field 3, etc.">
+      <input id="gl" value="${esc(g?.location||'')}" placeholder="e.g. TBD or park and field number">
     </div>
     <div class="form-group">
       <label>Opponent Difficulty <span style="font-size:.75rem;color:var(--muted)">(1 = sister team · 5 = competitive rec · 10 = older travel ball)</span></label>
@@ -1631,6 +1643,7 @@ function openGameModal(onSave, editGame) {
     const fmtTime = timeVal ? new Date('1970-01-01T'+timeVal).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : '';
     const fieldId = document.getElementById('gf').value;
     const game = {
+      ...g, seasonId: g ? (g.seasonId || 'unassigned') : (getSettings().season || 'unassigned'),
       id: g?.id||genId(), date, opponent: opp,
       time: fmtTime,
       fieldId,
@@ -1790,14 +1803,14 @@ function buildPrevCol(prevGame, players) {
   const lu = getLineup(prevGame.id);
   const comp = cache.compliance.filter(c=>c.gameId===prevGame.id);
   const res = prevGame.result ? `${prevGame.result} ${prevGame.ourScore}–${prevGame.theirScore}` : '';
-  const missed = comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean);
+  const missed = TeamSettings.participation(getSettings()) ? comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean) : [];
   return `<div class="lc-wrap">
     <div class="lc-hdr prev">
       <div class="lc-label">◀ Previous Game</div>
       <div class="lc-game">${esc(prevGame.date)} vs ${esc(prevGame.opponent)}</div>
       <div class="lc-meta">${esc(res)||'No result'}</div>
     </div>
-    ${missed.length?`<div class="lc-must-pill">⚑ Carry forward: ${missed.map(p=>esc(dname(p))).join(', ')}</div>`:'<div style="font-size:.75rem;color:#166534;font-weight:600">✅ All players met requirements</div>'}
+    ${TeamSettings.participation(getSettings()) ? (missed.length?`<div class="lc-must-pill">⚑ Participation reminder: ${missed.map(p=>esc(dname(p))).join(', ')}</div>`:'<div style="font-size:.75rem;color:#166534;font-weight:600">Participation target recorded</div>') : ''}
     <div class="lc-sec">Batting Order</div>
     ${buildReadOnlyOrder(lu, players, comp)}
     <div class="lc-sec">Starting Defense</div>
@@ -1809,14 +1822,14 @@ function buildNextCol(nextGame, players, currentGameId) {
   if (!nextGame) return `<div class="lc-wrap"><div class="lc-hdr next"><div class="lc-label">Next ▶</div><div class="lc-game" style="color:var(--green-dark)">No upcoming game</div></div></div>`;
   const lu   = getLineup(nextGame.id);
   const comp = cache.compliance.filter(c=>c.gameId===currentGameId);
-  const cfNext = comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean);
+  const cfNext = TeamSettings.participation(getSettings()) ? comp.filter(c=>!c.gotAB||!c.gotField).map(c=>players.find(p=>p.id===c.playerId)).filter(Boolean) : [];
   return `<div class="lc-wrap">
     <div class="lc-hdr next">
       <div class="lc-label">Next Game ▶</div>
       <div class="lc-game" style="color:var(--green-dark)">${esc(nextGame.date)} vs ${esc(nextGame.opponent)}</div>
       <div class="lc-meta" style="color:var(--green)">${nextGame.time||''}${nextGame.homeAway?' · '+(nextGame.homeAway==='home'?'🏠 Home':'✈️ Away'):''}</div>
     </div>
-    ${cfNext.length?`<div class="lc-must-pill">⚑ Must play next game: ${cfNext.map(p=>esc(dname(p))).join(', ')}</div>`:''}
+    ${cfNext.length?`<div class="lc-must-pill">⚑ Review for next game: ${cfNext.map(p=>esc(dname(p))).join(', ')}</div>`:''}
     <div class="lc-sec">Batting Order</div>
     ${buildReadOnlyOrder(lu, players, null)}
     <div class="lc-sec">Starting Defense</div>
@@ -1890,7 +1903,7 @@ function renderLineupContent(gameId) {
           <div class="lc-game">${game?esc(gameLabel(game)):'Select a game'}</div>
           <div class="lc-meta">${game?.time||''}${game?.homeAway?' · '+(game.homeAway==='home'?'🏠 Home':'✈️ Away'):''}</div>
         </div>
-        ${carryFwd.size>0?`<div class="lc-must-pill">⚑ Must play this game: ${[...carryFwd].map(pid=>{const p=players.find(x=>x.id===pid);return p?esc(dname(p)):'';}).filter(Boolean).join(', ')}</div>`:''}
+        ${carryFwd.size>0?`<div class="lc-must-pill">⚑ Review participation this game: ${[...carryFwd].map(pid=>{const p=players.find(x=>x.id===pid);return p?esc(dname(p)):'';}).filter(Boolean).join(', ')}</div>`:''}
         <div class="lineup-cols">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -1904,7 +1917,7 @@ function renderLineupContent(gameId) {
           ${ordered.map((e,i)=>`
             <li class="order-item${locked?' no-drag':''}" ${locked?'':'draggable="true"'} data-pid="${esc(e.playerId)}">
               <span class="order-num">${i+1}</span>
-              <span class="order-player">${esc(pname(e.playerId))}${carryFwd.has(e.playerId)?` <span class="badge-carry">MUST PLAY</span>`:''}</span>
+              <span class="order-player">${esc(pname(e.playerId))}${carryFwd.has(e.playerId)?` <span class="badge-carry">REVIEW</span>`:''}</span>
               ${!locked?`
                 <button class="btn-icon scratch-player" data-pid="${esc(e.playerId)}" title="Scratch from this game" style="color:#c0392b;font-size:1rem">🚫</button>
                 <button class="btn-icon rm-order" data-pid="${esc(e.playerId)}" title="Remove from batting order">✕</button>
@@ -2936,25 +2949,6 @@ document.getElementById('add-note-btn').addEventListener('click',()=>{
 // ── RESOURCES ─────────────────────────────────────────────────────────────────
 let resSkillFilter = 'all';
 const SKILL_EMOJI = {Hitting:'🏏',Fielding:'🧤',Baserunning:'🏃',Throwing:'💪',General:'🥎'};
-const SEED = [
-  {title:'Fastpitch Hitting Mechanics',         skill:'Hitting',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+hitting+mechanics+tutorial'},
-  {title:'Slap Hitting Technique',              skill:'Hitting',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+slap+hitting+technique'},
-  {title:'Bunting — Sacrifice & Bunt for Hit',  skill:'Hitting',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+bunting+technique+sacrifice'},
-  {title:'Windmill Pitching Mechanics',         skill:'General',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+windmill+pitching+mechanics'},
-  {title:'Rise Ball & Change-Up Grips',         skill:'General',     url:'https://www.youtube.com/results?search_query=fastpitch+softball+rise+ball+change+up+grip'},
-  {title:'Fielding Ground Balls — Infield',     skill:'Fielding',    url:'https://www.youtube.com/results?search_query=fastpitch+softball+infield+ground+ball+technique'},
-  {title:'Outfield Drop Step & Fly Ball Reads', skill:'Fielding',    url:'https://www.youtube.com/results?search_query=fastpitch+softball+outfield+drop+step+fly+ball'},
-  {title:'Throwing — Footwork & Arm Path',      skill:'Throwing',    url:'https://www.youtube.com/results?search_query=fastpitch+softball+throwing+footwork+arm+path'},
-  {title:'Aggressive Baserunning & Stealing',   skill:'Baserunning', url:'https://www.youtube.com/results?search_query=fastpitch+softball+baserunning+stealing+bases'},
-  {title:'Catching — Receiving & Blocking',     skill:'Fielding',    url:'https://www.youtube.com/results?search_query=fastpitch+softball+catcher+receiving+blocking+drills'},
-];
-
-async function seedResources() {
-  if (!cache.resources.length) {
-    for (const r of SEED) await fbSave('resources',{id:genId(),...r,playerId:null});
-  }
-}
-
 function renderResourcesTab() { renderResGrid(); }
 function renderResGrid() {
   const resources = cache.resources;
@@ -3022,7 +3016,7 @@ function exportAllData() {
   const snapshot = { _teamCode: teamCode, _exportedAt: new Date().toISOString() };
   COLLS.forEach(k => { snapshot[k] = cache[k]; });
   snapshot.settings = cache.settings;
-  const name = (cache.settings?.teamName||'FallBall').replace(/\s+/g,'-');
+  const name = (cache.settings?.teamName||'Team').replace(/\s+/g,'-');
   Object.assign(document.createElement('a'),{
     href: URL.createObjectURL(new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'})),
     download: `${name}_backup_${today()}.json`,
@@ -3181,6 +3175,7 @@ let _reloadRequired = false;
 const _loadedCollections = new Set();
 
 function resetPrivateSession() {
+  resetScorekeeping();
   _listenerGeneration++;
   unsubs.splice(0).forEach(unsub => unsub());
   _appInitialized = false;
@@ -3419,6 +3414,7 @@ function getPrevGame(currentGameId) {
 }
 
 function getCarryForwardSet(currentGameId) {
+  if (!TeamSettings.participation(getSettings())) return new Set();
   const prev = getPrevGame(currentGameId); if (!prev) return new Set();
   return new Set(
     cache.compliance
@@ -3428,6 +3424,7 @@ function getCarryForwardSet(currentGameId) {
 }
 
 function getCarryForwardDetail(currentGameId) {
+  if (!TeamSettings.participation(getSettings())) return [];
   // Returns array of { playerId, missedAB, missedField }
   const prev = getPrevGame(currentGameId); if (!prev) return [];
   return cache.compliance
@@ -3455,8 +3452,8 @@ function buildCarryForwardAlert(gameId, carryFwd, players) {
 
   return `<div style="background:#fff3cd;border:1px solid #f59e0b;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">
     <div style="font-weight:700;font-size:.85rem;color:#78350f;margin-bottom:8px">
-      ⚑ MUST PLAY — SBSL Compliance${prev?` (from ${prev.date} vs ${esc(prev.opponent)})`:''}</div>
-    <div style="font-size:.78rem;color:#78350f;margin-bottom:8px">These players didn't get required AB and/or fielding last game — they must play this game per league rules.</div>
+      ⚑ Participation reminder${prev?` (from ${prev.date} vs ${esc(prev.opponent)})`:''}</div>
+    <div style="font-size:.78rem;color:#78350f;margin-bottom:8px">These players missed the participation target selected by your team. Review your own rules before setting the lineup.</div>
     ${rows}
   </div>`;
 }
@@ -3499,6 +3496,7 @@ function buildPrevGameReference(gameId, players) {
 function renderCarryForward() {
   const el = document.getElementById('carry-forward-section');
   if (!el) return;
+  if (!TeamSettings.participation(getSettings())) { el.innerHTML = ''; return; }
   // Find the most recent game that has compliance data
   const games = [...cache.games].sort((a,b)=>b.date.localeCompare(a.date));
   let carryPlayers = [];
@@ -3518,14 +3516,14 @@ function renderCarryForward() {
 
   if (!carryPlayers.length) {
     el.innerHTML = `<div style="font-size:.82rem;color:var(--muted);margin-top:8px">
-      <span style="color:#166534;font-weight:600">✔ All players met requirements last game.</span>
+      <span style="color:#166534;font-weight:600">✔ No missing participation targets recorded for the last game.</span>
     </div>`;
     return;
   }
 
   el.innerHTML = `
     <div style="font-size:.85rem;font-weight:700;color:var(--red);margin-bottom:8px">
-      ⚑ Carry Forward — Must play next game
+      ⚑ Carry Forward — Review for next game
     </div>
     ${carryPlayers.map(x=>`
       <div class="carry-card">
@@ -3535,7 +3533,7 @@ function renderCarryForward() {
         <span style="color:var(--muted)"> in ${esc(x.game.date)} vs ${esc(x.game.opponent)}</span>
       </div>
     `).join('')}
-    <div style="font-size:.75rem;color:var(--muted);margin-top:6px">These players show a <span class="badge-carry">MUST PLAY</span> flag in the Lineup tab batting order.</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-top:6px">These players show a <span class="badge-carry">REVIEW</span> flag in the Lineup tab batting order.</div>
   `;
 }
 
@@ -3696,40 +3694,6 @@ function renderBandPreview() {
 }
 
 // ── FIELDS ───────────────────────────────────────────────────────────────────
-const FIELD_SEEDS = [
-  { name:'Swansboro',    address:'', notes:'' },
-  { name:'Downeast',     address:'', notes:'' },
-  { name:'Newport',      address:'', notes:'' },
-  { name:'Havelock',     address:'', notes:'' },
-  { name:'Pamlico',      address:'', notes:'' },
-  { name:'Western Park', address:'', notes:'' },
-];
-
-const CANONICAL_FIELD_IDS = new Set(['field-swansboro','field-downeast','field-newport','field-havelock','field-pamlico','field-westernpark']);
-const CANONICAL_FIELD_NAMES = new Set(['swansboro','downeast','newport','havelock','pamlico','western park']);
-
-async function seedFields() {
-  // Remove duplicates: entries with canonical names but non-canonical IDs
-  const dupes = cache.fields.filter(f => !CANONICAL_FIELD_IDS.has(f.id) && CANONICAL_FIELD_NAMES.has((f.name||'').toLowerCase()));
-  for (const f of dupes) await fbDelete('fields', f.id);
-  // Rename legacy 'Hubert' entry
-  const hubert = cache.fields.find(f=>f.name==='Hubert');
-  if (hubert) await fbSave('fields', {...hubert, name:'Swansboro'});
-  // Add any canonical fields not yet present
-  const existing = new Set(cache.fields.filter(f=>CANONICAL_FIELD_IDS.has(f.id)).map(f=>f.id));
-  const SEEDS_WITH_ADDRESSES = [
-    { id:'field-swansboro',   name:'Swansboro',    address:'283 Swansboro Loop Rd, Swansboro, NC 28584', notes:'', imageData:'' },
-    { id:'field-downeast',    name:'Downeast',     address:'299 Hill Rd #101, Smyrna, NC 28579',        notes:'', imageData:'' },
-    { id:'field-newport',     name:'Newport',      address:'274 Chatham St, Newport, NC 28570',         notes:'', imageData:'' },
-    { id:'field-havelock',    name:'Havelock',     address:'1 Recreation Drive, Havelock, NC 28532',    notes:'', imageData:'' },
-    { id:'field-pamlico',     name:'Pamlico',      address:'256 Ireland Rd, Bayboro, NC 28515',         notes:'', imageData:'' },
-    { id:'field-westernpark', name:'Western Park', address:'259 Old NC-58, Cedar Point, NC 28584',      notes:'', imageData:'' },
-  ];
-  for (const f of SEEDS_WITH_ADDRESSES) {
-    if (!existing.has(f.id)) await fbSave('fields', f);
-  }
-}
-
 function renderFieldsTab() { renderFieldGrid(); }
 
 function renderFieldGrid() {
@@ -3750,7 +3714,7 @@ function renderFieldGrid() {
         ${f.notes?`<div class="field-notes">${esc(f.notes)}</div>`:''}
         <div class="field-actions">
           <button class="btn btn-secondary btn-sm edit-field" data-fid="${esc(f.id)}">Edit</button>
-          ${FIELD_COORDS[f.id] ? `<button class="btn btn-secondary btn-sm wx-field" data-fid="${esc(f.id)}">🌤 72h</button>` : ''}
+          ${fieldCoordinates(f) ? `<button class="btn btn-secondary btn-sm wx-field" data-fid="${esc(f.id)}">🌤 72h</button>` : ''}
           ${f.address?`<a href="https://maps.google.com/?q=${encodeURIComponent(f.address)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Directions ↗</a>`:''}
           <button class="btn btn-danger btn-sm del-field" data-fid="${esc(f.id)}">✕</button>
         </div>
@@ -3785,8 +3749,12 @@ function deleteField(id) {
 function openFieldModal(id) {
   const f = id ? cache.fields.find(x=>x.id===id) : null;
   openModal(f?`Edit — ${f.name}`:'Add Field', `
-    <div class="form-group"><label>Field / Park Name *</label><input id="f-name" value="${esc(f?.name||'')}" placeholder="e.g. Hubert Recreation"></div>
+    <div class="form-group"><label>Field / Park Name *</label><input id="f-name" value="${esc(f?.name||'')}" placeholder="e.g. Community Park"></div>
     <div class="form-group"><label>Address</label><input id="f-addr" value="${esc(f?.address||'')}" placeholder="Street address for directions"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="form-group"><label>Weather latitude (optional)</label><input id="f-lat" type="number" min="-90" max="90" step="any" value="${esc(f?.latitude ?? '')}"></div>
+      <div class="form-group"><label>Weather longitude (optional)</label><input id="f-lon" type="number" min="-180" max="180" step="any" value="${esc(f?.longitude ?? '')}"></div>
+    </div>
     <div class="form-group"><label>Notes (parking, directions, field #, etc.)</label><textarea id="f-notes">${esc(f?.notes||'')}</textarea></div>
     <div class="form-group">
       <label>Field Map / Layout Image</label>
@@ -3813,7 +3781,9 @@ function openFieldModal(id) {
     if (urlInput) imageData = safeUrl(urlInput) !== '#' ? urlInput : imageData;
     // Use uploaded image if present (stored in a temp variable via the upload handler)
     if (window._pendingFieldImg) { imageData = window._pendingFieldImg; window._pendingFieldImg = null; }
-    const data = { id: f?.id||genId(), name, address: document.getElementById('f-addr').value.trim(), notes: document.getElementById('f-notes').value.trim(), imageData };
+    const latitude = document.getElementById('f-lat').value, longitude = document.getElementById('f-lon').value;
+    if ((latitude || longitude) && !TeamSettings.coordinates(latitude, longitude)) { toast('Enter both valid weather coordinates, or leave both blank'); return; }
+    const data = { ...f, latitude, longitude, id: f?.id||genId(), name, address: document.getElementById('f-addr').value.trim(), notes: document.getElementById('f-notes').value.trim(), imageData };
     fbSave('fields', data); closeModal(); renderFieldGrid(); toast(f?'Field updated ✔':'Field added ✔');
   });
 
@@ -3860,10 +3830,6 @@ function resizeImage(file, maxWidth, quality) {
 }
 
 document.getElementById('add-field-btn').addEventListener('click', ()=>openFieldModal(null));
-
-document.getElementById('field-seed-btn').addEventListener('click', async ()=>{
-  await seedFields(); renderFieldGrid(); toast('Fields updated ✔');
-});
 
 document.getElementById('field-band-btn').addEventListener('click', ()=>{
   const sorted = [...cache.fields].sort((a,b)=>a.name.localeCompare(b.name));
@@ -4156,26 +4122,6 @@ document.getElementById('user-pill').addEventListener('click', () => {
 });
 
 // ── OPPONENTS ────────────────────────────────────────────────────────────────
-const OPP_SEEDS = [
-  { name:'Newport',           difficulty:5, notes:'' },
-  { name:'Havelock',          difficulty:5, notes:'' },
-  { name:'Downeast',          difficulty:5, notes:'' },
-  { name:'Pamlico',           difficulty:5, notes:'' },
-  { name:'Western Park',      difficulty:5, notes:'' },
-  { name:'Swansboro 12U',     difficulty:1, notes:'12U sister team — practice / make-up game' },
-  { name:'Swansboro 14U',     difficulty:2, notes:'14U sister / combined team' },
-  { name:'Swansboro Travel',  difficulty:7, notes:'Swansboro travel ball program' },
-];
-
-async function seedOpponents() {
-  const existing = new Set(cache.opponents.map(o=>o.name.toLowerCase()));
-  for (const o of OPP_SEEDS) {
-    if (!existing.has(o.name.toLowerCase())) {
-      await fbSave('opponents', { id: genId(), ...o });
-    }
-  }
-}
-
 function renderOpponentsTab() { renderOppGrid(); }
 
 function renderOppGrid() {
@@ -5007,14 +4953,7 @@ function importScoutCSV(opponentId) {
 }
 
 // ── Weather ───────────────────────────────────────────────────────────────────
-const FIELD_COORDS = {
-  'field-swansboro':   { lat: 34.6897, lon: -77.1197 },
-  'field-downeast':    { lat: 34.7657, lon: -76.5574 },
-  'field-newport':     { lat: 34.7859, lon: -76.8540 },
-  'field-havelock':    { lat: 34.8793, lon: -76.9036 },
-  'field-pamlico':     { lat: 35.1411, lon: -76.7780 },
-  'field-westernpark': { lat: 34.6979, lon: -77.0654 },
-};
+function fieldCoordinates(field) { return TeamSettings.coordinates(field?.latitude, field?.longitude); }
 
 function wmoIcon(code) {
   if (code === 0)          return '☀️';
@@ -5042,33 +4981,14 @@ function wmoDesc(code) {
   return 'Thunderstorms';
 }
 
-async function initLoginWeather() {
+function initLoginWeather() {
   const el = document.getElementById('lw-text');
-  if (!el) return;
-  try {
-    const { lat, lon } = FIELD_COORDS['field-swansboro'];
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=temperature_2m,weather_code,wind_speed_10m,precipitation_probability` +
-      `&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=America%2FNew_York`;
-    const res = await fetch(url);
-    const d = await res.json();
-    const c = d.current;
-    const temp  = Math.round(c.temperature_2m);
-    const wind  = Math.round(c.wind_speed_10m);
-    const precip = c.precipitation_probability ?? 0;
-    const icon  = wmoIcon(c.weather_code);
-    const desc  = wmoDesc(c.weather_code);
-    el.closest('#login-weather').innerHTML =
-      `${icon} Swansboro: <strong>${temp}°F</strong> · ${desc} · Wind ${wind} mph · Precip ${precip}%`;
-  } catch(e) {
-    const el2 = document.getElementById('lw-text');
-    if (el2) el2.textContent = 'Weather unavailable';
-  }
+  if (el) el.textContent = 'Weather is available for locations your team adds.';
 }
 
 async function openFieldWeatherModal(fieldId) {
   const f = cache.fields.find(x => x.id === fieldId);
-  const coords = FIELD_COORDS[fieldId];
+  const coords = fieldCoordinates(f);
   if (!f || !coords) return;
 
   openModal(`🌤 72h Forecast — ${f.name}`,
@@ -5081,7 +5001,7 @@ async function openFieldWeatherModal(fieldId) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m` +
       `&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=3` +
-      `&timezone=America%2FNew_York`;
+      `&timezone=auto`;
     const res = await fetch(url);
     const d = await res.json();
     const hours = d.hourly.time;
