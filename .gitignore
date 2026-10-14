@@ -2,3 +2,7 @@ node_modules/
 *-debug.log
 backups/*.json
 *-roster-private.json
+.task-*
+private-exports/
+service-account*.json
+*.pem

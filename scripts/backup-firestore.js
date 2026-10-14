@@ -6,7 +6,8 @@ const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
 const db        = admin.firestore();
-const TEAM_CODE = process.env.TEAM_CODE || 'SBSL-14USB';
+const TEAM_CODE = process.env.TEAM_CODE;
+if (!TEAM_CODE || !/^[A-Z0-9-]{1,64}$/.test(TEAM_CODE)) throw Error('Set an explicit valid TEAM_CODE; there is no default team');
 const COLLS     = ['players','games','lineups','stats','notes','resources','pitching',
                    'compliance','fields','opponents','coaches','batteries','scouting'];
 
