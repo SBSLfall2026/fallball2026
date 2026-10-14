@@ -70,11 +70,11 @@ function drawScorekeeping() {
   el.querySelector('#score-retry')?.addEventListener('click', () => saveScoring(scoringPending.operation, true));
   el.querySelector('#score-discard')?.addEventListener('click', () => { scoringPending = null; scoringError = ''; drawScorekeeping(); });
 }
-async function saveScoring(operation, retry = false) {
+async function saveScoring(operation, retry = false, expectedRevision = (scoringState || Scorekeeping.initial()).revision) {
   if (scoringBusy || !scoringReady || !_appInitialized || !auth.currentUser) return;
   if (scoringPending && !retry) { toast('Retry or discard the unsaved operation first'); return; }
   const generation = scoringGeneration, team = teamCode, gameId = scoringGameId, actorUid = auth.currentUser.uid;
-  const pending = retry ? scoringPending : { operation, operationId: crypto.randomUUID(), expectedRevision: (scoringState || Scorekeeping.initial()).revision };
+  const pending = retry ? scoringPending : { operation, operationId: crypto.randomUUID(), expectedRevision };
   scoringPending = pending; scoringBusy = true; scoringError = ''; drawScorekeeping();
   try {
     await ScorekeepingStorage.append({ db, team, gameId, actorUid, ...pending, serverTimestamp: () => firebase.firestore.FieldValue.serverTimestamp(),
@@ -97,6 +97,6 @@ function openScoreCorrection(state) {
       const operation = { kind: 'correction', reason: document.getElementById('sc-reason').value.trim(), scoreboard: { half: document.getElementById('sc-half').value } };
       for (const key of ['inning','outs','homeScore','awayScore']) operation.scoreboard[key] = Number(document.getElementById('sc-'+key).value);
       try { Scorekeeping.transition(state, operation); } catch(error) { toast(error.message); return; }
-      closeModal(); saveScoring(operation);
+      closeModal(); saveScoring(operation, false, state.revision);
     });
 }
