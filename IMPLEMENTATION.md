@@ -15,7 +15,9 @@ Reuse useful roster, lineup, pitching and team isolation code. No production bra
 - Initial season identifier on new games; editing existing games retains their season/unassigned state. Full archival remains outstanding.
 
 ## Validation
-All 11 original access tests passed before edits. Updated local model/storage/access/neutrality suites passed (21 tests). A synthetic browser smoke at 390px width passed runs, three outs, half change, coach review, correction, eight audit entries, tab hiding and no page errors. This verifies browser integration with a stand-in, not live Firebase connectivity. Firestore emulator tests must pass in PR CI before release.
+All 11 original access tests passed before edits. Updated local model/storage/access/neutrality suites passed (22 tests including a stale correction-form regression). A synthetic browser smoke at 390px width passed runs, three outs, half change, coach review, correction, retained audit entries, rejection of a correction opened before another scorer's update, tab hiding and no page errors. This verifies browser integration with a stand-in, not live Firebase connectivity. Initial PR CI passed 21 application tests and all 10 Firestore emulator tests; subsequent correction protection has its own CI run. Verify the latest PR head before release.
+
+CI dependency installation reported 22 audit findings (9 moderate, 12 high, 1 critical) in the existing development-tool dependency tree. No dependency versions were changed in this slice. Review the detailed dependency audit and update/test the toolchain before release; do not interpret passing behavior tests as a clean dependency audit or use automatic forced upgrades without review.
 
 ## Release and rollback
 Owner review and passing rules tests are required before merge/deployment. Complete inherited IAM/service-account and deployment-identity checks, then deploy rules before page/scripts and exercise an isolated synthetic team. Google Cloud's advanced IAM page presented Terms of Service acceptance, which Work did not accept. Owner action is needed to get past that gate. No production cutover or reimport has occurred.
